@@ -30,14 +30,14 @@ check("登录页 200", r.status_code == 200)
 r = c.post("/login", data={"password": BAD, "next": "/subscribe"},
            headers={"Origin": BASE})
 check("错密码被拒", r.status_code == 303 and "error=1" in r.headers.get("location", "")
-      and "tgkw_auth" not in r.cookies, f"{r.headers.get('location')}")
+      and "sub_auth" not in r.cookies, f"{r.headers.get('location')}")
 
-# 4. admin 登录 → 303 /subscribe + 下发 tgkw_auth/tgkw_csrf
+# 4. admin 登录 → 303 /subscribe + 下发 sub_auth/sub_csrf
 r = c.post("/login", data={"password": ADMIN, "next": "/subscribe"},
            headers={"Origin": BASE})
 check("admin 登录成功", r.status_code == 303 and r.headers.get("location") == "/subscribe",
       f"{r.headers.get('location')}")
-check("下发会话 cookie", "tgkw_auth" in r.cookies and "tgkw_csrf" in r.cookies)
+check("下发会话 cookie", "sub_auth" in r.cookies and "sub_csrf" in r.cookies)
 
 # 5. 带 cookie 三页 200
 for p in ("/subscribe", "/subscribe/alerts", "/subscribe/settings"):
@@ -50,7 +50,7 @@ check("无 CSRF token 的 POST 被拒", r.status_code == 303 and "login" in r.he
       f"{r.status_code} -> {r.headers.get('location')}")
 
 # 7. 登出后 cookie 失效
-csrf = c.cookies.get("tgkw_csrf", "")
+csrf = c.cookies.get("sub_csrf", "")
 r = c.post("/logout", data={"csrf": csrf}, headers={"Origin": BASE})
 check("登出 303 /login", r.status_code == 303 and r.headers.get("location") == "/login")
 r = c.get("/subscribe")

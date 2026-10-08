@@ -1,1 +1,1 @@
-"""tg-keywatch: Telegram 文件夹/关键字监听管理后台。"""
+"""subpanel: 订阅续费提醒站（FastAPI + SQLite + 调度/推送）。"""

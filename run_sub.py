@@ -25,7 +25,7 @@ _console = logging.StreamHandler()
 _console.setLevel(logging.INFO if _stdout_mode else logging.WARNING)
 _console.setFormatter(_fmt)
 _root.addHandler(_console)
-# httpx INFO 会打印完整 URL —— Telegram 推送 URL 内嵌 bot token，必须静音
+# httpx INFO 会打印完整请求 URL（可能内嵌凭据），必须静音
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 if __name__ == "__main__":

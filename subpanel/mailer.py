@@ -1,6 +1,6 @@
 """邮件通道：SMTP 配置全存 DB settings 表（后台可改），授权码只以 **** 回显、绝不外泄。
 smtplib 是阻塞库，一律 asyncio.to_thread 下跑；SSL465 或 STARTTLS587 两种加密。
-出站一律直连（本站无需代理；TG 走代理属 TG KeyWatch 站）。"""
+出站一律直连（本站无需代理）。"""
 import asyncio
 import json
 import smtplib

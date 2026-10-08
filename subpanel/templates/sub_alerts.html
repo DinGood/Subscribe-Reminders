@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block body %}
 {% macro subpushcell(p, alert_id, csrf) -%}  <span class="row" style="gap:5px;border:1px solid var(--bd);border-radius:999px;padding:1px 10px">
-    <span class="mut" style="font-size:11px">{{ {'feishu_bot':'飞书','telegram_bot':'TG Bot','mail':'邮件'}.get(p['wh_fmt'], p['wh_name']) }}</span>
+    <span class="mut" style="font-size:11px">{{ {'feishu_bot':'飞书','mail':'邮件'}.get(p['wh_fmt'], p['wh_name']) }}</span>
     {% if p['status'] == 'delivered' %}<span class="badge ok" style="padding:2px 8px" title="{{ p['attempts'] }}次{% if p['response_code'] %} · HTTP{{ p['response_code'] }}{% endif %}">✓</span>
     {% else %}
     <span class="badge {{ {'dead':'dead','pending':'pend','retrying':'pend','sending':'pend','none':'mut'}.get(p['status'],'mut') }}">{{ {'dead':'死信','pending':'待推','retrying':'重投中','sending':'发送中','none':'—'}.get(p['status'], p['status']) }}</span>

@@ -15,7 +15,7 @@ from datetime import date, datetime
 
 from . import config, db
 
-log = logging.getLogger("tgkw.subwatcher")
+log = logging.getLogger("sub.subwatcher")
 
 _task: asyncio.Task | None = None
 _inner: asyncio.Task | None = None  # 当前 _loop 任务（stop 时须一并取消，防 orphan 双跑）
@@ -216,7 +216,7 @@ def _fire(s: dict, lead: int, fire_day: date, now: int, conn, backfill: bool = F
         return 0
     alert_id = cur.lastrowid
     chans = channels()
-    ids = {}  # 优先订阅专属行（name 前缀），防搭到 TG 模块同 fmt 行的开关上
+    ids = {}  # 优先订阅专属行（name 前缀）
     for fmt in ("feishu_bot", "mail"):
         w = conn.execute("SELECT id FROM webhooks WHERE fmt=? AND name LIKE '订阅%'"
                          " ORDER BY id LIMIT 1", (fmt,)).fetchone()
@@ -248,7 +248,7 @@ def _skip(s: dict, lead: int, fire_day: date, conn) -> None:
     conn.commit()
 
 
-# 订阅模块专属渠道行（固定 id，首启自动建；TG 模块按 id 递增不会占用 101-103）
+# 专属渠道行（固定 id，首启自动建）
 CH_FEISHU, CH_MAIL = 101, 103
 DEFAULT_CHANNELS = {"feishu": True, "mail": False}
 
@@ -303,7 +303,7 @@ def set_channels(d: dict) -> None:
 
 
 def ensure_default_subs() -> None:
-    """首启建订阅模块专属的渠道 webhooks 行（固定 id；TG 模块按 id 递增不会占用）。"""
+    """首启建订阅专属的渠道 webhooks 行（固定 id）。"""
     conn = db.db()
     now = db.now()
     for wh_id, name, url, fmt in ((CH_FEISHU, "订阅飞书", "feishu://api", "feishu_bot"),

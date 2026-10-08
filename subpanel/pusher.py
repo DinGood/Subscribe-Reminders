@@ -1,5 +1,5 @@
 """推送 worker（订阅域）：pending -> sending -> delivered / retrying -> dead。
-状态机与 TG 关键字站同构；渠道=飞书卡片 + 邮件（TG Bot 渠道已于 2026-10-04 拆分时移除）。"""
+渠道=飞书卡片 + 邮件。"""
 import asyncio
 import json
 import logging

@@ -10,7 +10,7 @@ DATA_DIR = Path(os.environ.get("SUB_DATA_DIR", BASE_DIR / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "subpanel.db"
 
-AUTH_ENABLED = os.environ.get("SUB_AUTH_ENABLED", os.environ.get("TGKW_AUTH_ENABLED", "1")).strip() != "0"
+AUTH_ENABLED = os.environ.get("SUB_AUTH_ENABLED", "1").strip() != "0"
 HOST = os.environ.get("SUB_HOST", "127.0.0.1")
 PORT = int(os.environ.get("SUB_PORT", "8766"))
 
@@ -74,8 +74,7 @@ PUSH_MAX_ATTEMPTS = 1 + len(PUSH_BACKOFF_S)
 PUSH_TIMEOUT_S = 10.0
 PUSH_POLL_INTERVAL_S = 5.0
 CFG_CACHE_TTL_S = 5
-SMTP_TIMEOUT_S = float(os.environ.get("SUB_SMTP_TIMEOUT",
-                                      os.environ.get("TGKW_SMTP_TIMEOUT", "15")))
+SMTP_TIMEOUT_S = float(os.environ.get("SUB_SMTP_TIMEOUT", "15"))
 COOKIE_SECURE = os.environ.get("SUB_COOKIE_SECURE", "").strip() in ("1", "true", "yes")
 SUB_FIRE_MIN = 0
 LOGO_DIR = DATA_DIR / "logos"

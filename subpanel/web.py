@@ -80,7 +80,7 @@ def _check_pw(pw: str) -> bool:
     if hmac.compare_digest(_hash_pw(pw), saved):
         return True
     # 兼容旧 HMAC-随机盐哈希（h: 前缀，scrypt 改造前的库）：验证通过即无感升级。
-    # 固定盐 tgkw-salt 时代的老哈希已被升级路径取代，兼容分支删除（公开仓不留盐常量线索）。
+    # 历史固定盐时代的兼容分支已删除（公开仓不留盐常量线索）。
     salt = db.get_setting("pw_salt") or ""
     legacy = "h:" + hmac.new(salt.encode(), pw.encode(), "sha256").hexdigest()
     if salt and hmac.compare_digest(legacy, saved):
@@ -132,8 +132,8 @@ async def login(request: Request, password: str = Form(...), next: str = "/subsc
         db.set_setting("csrf_token", csrf)
         resp = RedirectResponse(_safe_next(next), status_code=303)
         secure = config.COOKIE_SECURE
-        resp.set_cookie("tgkw_auth", token, httponly=True, samesite="strict", secure=secure)
-        resp.set_cookie("tgkw_csrf", csrf, httponly=True, samesite="strict", secure=secure)
+        resp.set_cookie("sub_auth", token, httponly=True, samesite="strict", secure=secure)
+        resp.set_cookie("sub_csrf", csrf, httponly=True, samesite="strict", secure=secure)
         return resp
     _login_fails.setdefault(ip, []).append(time.time())
     return RedirectResponse("/login?error=1", status_code=303)
@@ -147,8 +147,8 @@ async def logout(request: Request):
     db.set_setting("session_token", "")
     db.set_setting("csrf_token", "")
     resp = RedirectResponse("/login", status_code=303)
-    resp.delete_cookie("tgkw_auth")
-    resp.delete_cookie("tgkw_csrf")
+    resp.delete_cookie("sub_auth")
+    resp.delete_cookie("sub_csrf")
     return resp
 
 
@@ -180,7 +180,7 @@ def _origin_ok(request: Request) -> bool:
 async def auth_required(request: Request):
     if not config.AUTH_ENABLED:
         return None  # 建设阶段免登录
-    token = request.cookies.get("tgkw_auth", "")
+    token = request.cookies.get("sub_auth", "")
     saved = db.get_setting("session_token")
     if not saved or not hmac.compare_digest(token, saved):
         return RedirectResponse("/login", status_code=303)
@@ -342,7 +342,7 @@ async def sub_alerts(request: Request, page: int = 1, msg: str = ""):
             " JOIN webhooks w ON w.id=p.webhook_id WHERE p.alert_id IN (%s)"
             " ORDER BY p.id" % ",".join("?" * len(ids)), ids):
             sp_by_alert.setdefault(p["alert_id"], []).append(dict(p))
-        # 占位行按 fmt 去重取首行（TG 模块同 fmt 的 webhook 行不参与订阅渲染）
+        # 占位行按 fmt 去重取首行
         all_wh = [dict(w) for w in conn.execute(
             "SELECT MIN(id) id,name,fmt FROM webhooks WHERE fmt IN "
             "('feishu_bot','mail') GROUP BY fmt ORDER BY id").fetchall()]
