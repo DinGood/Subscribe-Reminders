@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block body %}
+{% set msgs = {'chans':'渠道设置已保存','freq_saved':'提醒频率已保存','bad_freq':'频率档位无效，请从下拉框中选择',
+              'smtp_saved':'SMTP 配置已保存','bad_smtp':'SMTP 校验未通过：主机/端口/发件账号必填，收件邮箱需含 @',
+              'test_feishu:ok':'飞书测试已发送',
+              'test_mail:ok':'测试邮件已发送','test_mail:fail':'邮件测试失败（SMTP 未配置或发送被拒）','test_mail:error':'邮件测试异常',
+              'cat_added':'分类已添加','cat_deleted':'分类已删除','bad_cat':'分类名不能为空','feishu_saved':'飞书配置已保存（即时生效，授权码/Secret 不回显）',
+              'dup_cat':'该分类已存在','too_many_cat':'分类数量已达上限（20 个）','no_cat':'该分类不存在','last_cat':'至少保留一个分类',
+              'cur_added':'币种已添加','cur_deleted':'币种已删除','bad_cur':'代码/名称/符号都必填',
+              'dup_cur':'该代码已存在','no_cur':'该币种不存在','last_cur':'至少保留一个币种'} %}
+{% if msg.startswith('test_feishu:') and msg != 'test_feishu:ok' %}<div class="flash" style="background:#fdeeee;color:#c93a3f;border-color:#f5c3c5;border-left-color:#e5484d">飞书测试未通过（{{ msg.split(':')[1] }}）：<span style="word-break:break-all">{{ msg.split(':',2)[2] if msg.count(':')>1 else '未知异常' }}</span></div>
+{% elif msg.startswith('test_mail:') and msg != 'test_mail:ok' %}<div class="flash" style="background:#fdeeee;color:#c93a3f;border-color:#f5c3c5;border-left-color:#e5484d">邮件测试未通过（{{ msg.split(':')[1] }}）：<span style="word-break:break-all">{{ msg.split(':',2)[2] if msg.count(':')>1 else '未知异常' }}</span></div>
+{% elif msg.startswith('cat_in_use:') %}<div class="flash">该分类下还有 {{ msg.split(':')[-1] }} 个订阅，先把它们改掉或再添加一个同名分类后再删</div>
+{% elif msg %}<div class="flash">{{ msgs.get(msg, msg) }}</div>{% endif %}
+
+<div class="card">
+  <b style="font-size:15px">提醒频率</b>
+  <div class="mut" style="margin:2px 0 10px">全模块统一生效（不按单条订阅配置）：周期订阅从到期前所选天数起、每天这个钟点各推一条，<b>到期当天默认必提</b>；一次性项只在当天该钟点推一次。错过时点当天启动会补发，隔日记 skipped。</div>
+  <form method="post" action="/subscribe/settings/frequency">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="row">
+      <span class="mut" style="width:128px;white-space:nowrap">提前天数（含当天）</span>
+      <select name="days" style="width:130px" title="到期前哪些天各推一条提醒；到期当天始终提醒">
+        {% for k, v in freq_days_opts.items() %}<option value="{{ k }}" {{ 'selected' if k == fq_days|string }}>{{ v }}</option>{% endfor %}
+      </select>
+      <span class="mut" style="width:60px;margin-left:12px">检查钟点</span>
+      <select name="hour" style="width:110px" title="每天几点执行检查">
+        {% for k, v in freq_hours_opts.items() %}<option value="{{ k }}" {{ 'selected' if k == fq_hour|string }}>{{ v }}</option>{% endfor %}
+      </select>
+      <span class="mut">（本地时间）</span>
+      <span style="flex:1"></span>
+      <button>保存</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <b style="font-size:15px">分类管理</b>
+  <div class="mut" style="margin:2px 0 10px">订阅的分类标签（添加/编辑弹窗下拉即此列表）。分类可自由增删；分类下还有订阅时不能删。已删除分类的历史订阅显示为「未分类」（代码内建回退位，不在本列表管理）。</div>
+  <div class="row" style="flex-wrap:wrap;gap:8px;margin-bottom:10px">
+    {% for c in cats %}
+    <span class="chip" style="font-size:13px">{{ c }}{% if cat_counts.get(c) %} · {{ cat_counts.get(c) }} 个订阅{% endif %}
+      <form method="post" action="/subscribe/settings/categories/delete" style="display:inline;margin-left:4px"
+            onsubmit="return confirm('删除分类「{{ c }}」？')">
+        <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="name" value="{{ c }}">
+        <button class="editbtn" type="submit" title="删除分类" style="background:none;border:0;box-shadow:none;color:var(--danger);cursor:pointer;font-size:12px;padding:0">×</button>
+      </form>
+    </span>
+    {% endfor %}
+  </div>
+  <form method="post" action="/subscribe/settings/categories/add" class="row" style="gap:8px">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input name="name" placeholder="新分类名（≤12 字）" maxlength="12" required style="width:200px;padding:6px 10px;font-size:13px;border-radius:8px;border:1px solid var(--bd)">
+    <button class="tiny" type="submit">＋ 添加分类</button>
+  </form>
+</div>
+
+<div class="card">
+  <b style="font-size:15px">币种管理</b>
+  <div class="mut" style="margin:2px 0 10px">订阅金额的币种选项（代码/名称/符号）。可自由增删；引用到不在表内的代码时回退显示 ¥（人民币，代码内建回退位）。删除只影响今后选项，历史记录里已存的代码仍按其快照符号显示。</div>
+  <div class="row" style="flex-wrap:wrap;gap:8px;margin-bottom:10px">
+    {% for c in curs %}
+    <span class="chip" style="font-size:13px">{{ c.code }} {{ c.name }} {{ c.sym }}
+      <form method="post" action="/subscribe/settings/currencies/delete" style="display:inline;margin-left:4px"
+            onsubmit="return confirm('删除币种「{{ c.code }} {{ c.name }}」？')">
+        <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="code" value="{{ c.code }}">
+        <button type="submit" title="删除币种" style="background:none;border:0;box-shadow:none;color:var(--danger);cursor:pointer;font-size:12px;padding:0">×</button>
+      </form>
+    </span>
+    {% endfor %}
+  </div>
+  <form method="post" action="/subscribe/settings/currencies/add" class="row" style="gap:8px;flex-wrap:wrap">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input name="code" placeholder="代码(如 EUR)" maxlength="4" required style="width:110px;padding:6px 10px;font-size:13px;border-radius:8px;border:1px solid var(--bd)" autocapitalize="characters">
+    <input name="name" placeholder="名称(如 欧元)" maxlength="12" required style="width:140px;padding:6px 10px;font-size:13px;border-radius:8px;border:1px solid var(--bd)">
+    <input name="sym" placeholder="符号(如 €)" maxlength="4" required style="width:100px;padding:6px 10px;font-size:13px;border-radius:8px;border:1px solid var(--bd)">
+    <button class="tiny" type="submit">＋ 添加币种</button>
+  </form>
+</div>
+
+<div class="card">
+  <b style="font-size:15px">提醒渠道</b>
+  <div class="mut" style="margin:2px 0 10px">停用渠道在提醒生成时不入队，不回补。</div>
+  <form method="post" action="/subscribe/settings/channels">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <table>
+      <tr><th>渠道</th><th class="vdiv">说明</th><th style="width:70px;text-align:center">启用</th></tr>
+      <tr>
+        <td><b>飞书</b></td>
+        <td class="vdiv mut">蓝头卡片【订阅】→ 会话 {{ feishu_chat_masked }}
+          {% if feishu_ready %}<span class="badge ok" style="margin-left:6px;padding:2px 8px" title="App ID {{ feishu_app_id_masked }}｜App Secret 已配置（不回显）｜Chat ID {{ feishu_chat_masked }}">已配置</span>
+          {% else %}<span class="badge pend" style="margin-left:6px;padding:2px 8px" title="App ID / App Secret / Chat ID 三项任一未填——写入站点 .env 并重启后生效">未配置完整</span>{% endif %}
+        </td>
+        <td style="text-align:center"><label class="switch"><input type="checkbox" name="feishu" value="1" {{ 'checked' if chans.feishu }} onchange="this.form.submit()"><span class="slider"></span></label></td>
+      </tr>
+      <tr>
+        <td><b>邮件</b></td><td class="vdiv mut">纯文本 → SMTP 配置见下方；需先在下方填好主机/账号/授权码/收件邮箱</td>
+        <td style="text-align:center"><label class="switch"><input type="checkbox" name="mail" value="1" {{ 'checked' if chans.mail }} onchange="this.form.submit()"><span class="slider"></span></label></td>
+      </tr>
+    </table>
+  </form>
+  <div class="row" style="margin-top:10px">
+    <form method="post" action="/subscribe/settings/test/feishu"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost tiny">发飞书测试</button></form>
+    <form method="post" action="/subscribe/settings/test/mail"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost tiny">发邮件测试</button></form>
+  </div>
+</div>
+
+<div class="card">
+  <b style="font-size:15px">飞书机器人接入</b>
+  <div class="mut" style="margin:2px 0 12px">
+    配置存本机数据库（保存即生效，无需重启）；输入框留空=保持已存值，App ID / Secret 永不回显明文，仅显示脱敏摘要。当前：
+    App ID <b style="color:var(--fg)">{{ feishu_app_id_masked }}</b> · 会话 <b style="color:var(--fg)">{{ feishu_chat_masked }}</b>
+    {% if feishu_ready %}<span class="badge ok">已配置</span>{% else %}<span class="badge pend">未配置完整</span>{% endif %}
+  </div>
+  <form method="post" action="/subscribe/settings/feishu">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="row">
+      <input name="app_id" type="password" placeholder="{{ 'App ID（留空=不修改）' if feishu.app_id else 'App ID（开放平台 cli_ 开头）' }}" style="flex:1;min-width:180px" autocomplete="off">
+      <input name="chat_id" type="password" placeholder="{{ '会话 Chat ID（留空=不修改）' if feishu.chat_id else 'Chat ID（oc_ 开头的目标群）' }}" style="flex:1;min-width:180px" autocomplete="off">
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input name="app_secret" type="password" placeholder="{{ 'App Secret（留空=不修改）' if feishu.app_secret else 'App Secret' }}" style="flex:1;min-width:180px" autocomplete="new-password">
+      <input name="api_base" placeholder="API 地址（默认 https://open.feishu.cn，可留空）" value="{{ feishu.api_base }}" style="flex:1;min-width:200px">
+      <button>保存飞书配置</button>
+    </div>
+    {% if feishu.app_id or feishu.app_secret or feishu.chat_id %}<div class="row" style="margin-top:8px"><span class="badge mut">已存凭据不回显；如需替换请填入新值直接保存</span></div>{% endif %}
+  </form>
+</div>
+
+<div class="card">
+  <b style="font-size:15px">SMTP 邮件服务</b>
+  <div class="mut" style="margin:2px 0 12px">
+    配置存本机数据库，仅 127.0.0.1 可访问；授权码保存后只回显 ****，不进日志。
+    直连失败会自动经本机 SOCKS5(127.0.0.1:10808) 重试一次。当前状态：
+    {% if smtp_ready %}<span class="badge ok">已就绪</span>{% else %}<span class="badge pend">未配置完整</span>{% endif %}
+  </div>
+  <form method="post" action="/subscribe/settings/smtp">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="keep_pw" value="keep">
+    <div class="row">
+      <input name="host" placeholder="SMTP 主机（如 smtp.qq.com）" value="{{ smtp.get('host','') }}" style="flex:1;min-width:200px" required>
+      <input name="port" placeholder="端口" value="{{ smtp.get('port','465') }}" style="width:90px" inputmode="numeric" required>
+      <select name="security" title="加密方式">
+        <option value="ssl" {{ 'selected' if smtp.get('security','ssl') == 'ssl' }}>SSL (465)</option>
+        <option value="starttls" {{ 'selected' if smtp.get('security') == 'starttls' }}>STARTTLS (587)</option>
+      </select>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input name="user" placeholder="发件邮箱账号" value="{{ smtp.get('user','') }}" style="flex:1;min-width:180px" autocomplete="off">
+      <input name="password" type="password" placeholder="{{ '授权码（留空=不修改）' if smtp.get('password') else '授权码/密码' }}" style="flex:1;min-width:180px" autocomplete="new-password">
+      {% if smtp.get('password') %}<span class="badge mut">已存 ****</span>{% endif %}
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input name="to" placeholder="收件邮箱（提醒发到此地址）" value="{{ smtp.get('to','') }}" style="flex:1;min-width:200px" required>
+      <input name="from_name" placeholder="发件人显示名（可选）" value="{{ smtp.get('from_name','') }}" style="width:200px" maxlength="40">
+      <button>保存 SMTP</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

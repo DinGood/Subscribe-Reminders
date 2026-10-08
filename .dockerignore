@@ -1,0 +1,15 @@
+# 镜像层绝不含数据与凭据：DB(含飞书Secret/SMTP授权码明文)、日志、LOGO、.env 全部挡在门外
+.env
+.env.*
+!.env.example
+data/
+docs/
+tests/
+PROJECT_NOTES.md
+IDEA.md
+.venv/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+*.md

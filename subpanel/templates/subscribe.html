@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+{% block body %}
+<style>
+/* 订阅卡片列表：标题卡与每条订阅各一张卡；六列用同一 grid 模板对齐 */
+.subgrid{display:grid;grid-template-columns:160px minmax(120px,1fr) 96px 190px 80px 56px 76px;align-items:center}
+.subgrid .sgdiv{border-right:1px solid var(--bd)}
+.subgrid>div{text-align:center;min-width:0;padding:2px 10px}
+.subgrid .editbtn{background:none;border:0;box-shadow:none;color:var(--acc);font-weight:600;font-size:15px;padding:0;cursor:pointer}
+.subgrid .editbtn::before{content:"▸ "}
+.subgrid .editbtn.open::before{content:"▾ "}
+.subgrid .editbox{grid-column:1/-1;border-top:1px solid var(--bd);margin-top:6px;padding:10px;
+text-align:left;display:none;flex-direction:column;gap:6px}
+.subgrid .editbox.open{display:flex}
+.subgrid .sublogo-cell,.subgrid .subdate-cell{display:flex;justify-content:center}
+
+/* ---------- 添加订阅弹窗 ---------- */
+#submodal{position:fixed;inset:0;z-index:80}
+.mbmask{position:absolute;inset:0;background:rgba(15,23,42,.45);backdrop-filter:blur(2px)}
+.mbbox{position:relative;margin:12vh auto 0;max-width:560px;background:var(--card);
+border:1px solid var(--bd);border-radius:14px;box-shadow:0 18px 50px rgba(15,23,42,.25)}
+.mbhead{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--bd);font-size:15px}
+.mbx{background:none;border:0;box-shadow:none;color:var(--mut);font-size:20px;line-height:1;cursor:pointer;padding:2px 8px}
+.mbx:hover{color:var(--fg)}
+.mbgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;padding:16px 20px}
+.mbgrid label{display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--mut);font-weight:500}
+.mbgrid input,.mbgrid select{padding:7px 10px;font-size:13.5px;border-radius:8px;border:1px solid var(--bd);
+background:var(--bg);color:var(--fg);width:100%}
+.mbgrid input[type=file]{padding:5px 8px;font-size:12.5px;cursor:pointer}
+.mbgrid input[type=file]::file-selector-button{border:1px solid var(--bd);border-radius:6px;background:var(--card2);
+color:var(--fg);padding:3px 10px;margin-right:8px;font-size:12px;cursor:pointer}
+.mbgrid input:focus,.mbgrid select:focus{outline:2px solid rgba(79,110,247,.35)}
+.mbfoot{justify-content:flex-end;gap:8px;padding:0 20px 16px}
+.ghostbtn{background:none;border:1px solid var(--bd);box-shadow:none;color:var(--mut);cursor:pointer;
+padding:7px 16px;font-size:13px;border-radius:999px}
+.ghostbtn:hover{color:var(--fg);background:var(--card2)}
+</style>
+{% macro subpushcell(p, alert_id, csrf) -%}  <span class="row" style="gap:5px;border:1px solid var(--bd);border-radius:999px;padding:1px 10px">
+    <span class="mut" style="font-size:11px">{{ {'feishu_bot':'飞书','mail':'邮件'}.get(p['wh_fmt'], p['wh_name']) }}</span>
+    {% if p['status'] == 'delivered' %}<span class="badge ok" style="padding:2px 8px" title="{{ p['attempts'] }}次{% if p['response_code'] %} · HTTP{{ p['response_code'] }}{% endif %}">✓</span>
+    {% else %}
+    <span class="badge {{ {'dead':'dead','pending':'pend','retrying':'pend','sending':'pend','none':'mut'}.get(p['status'],'mut') }}">{{ {'dead':'死信','pending':'待推','retrying':'重投中','sending':'发送中','none':'—'}.get(p['status'], p['status']) }}</span>
+    {% if p['status'] != 'none' %}<span class="mut">{{ p['attempts'] }}次{% if p['response_code'] is not none %} · HTTP{{ p['response_code'] }}{% endif %}</span>{% endif %}
+    {% endif %}
+    {% if p['last_error'] %}<span class="mut" title="{{ p['last_error'] }}">{{ p['last_error'][:40] }}</span>{% endif %}
+    {% if p['status'] == 'dead' %}
+    <form method="post" action="/subscribe/alerts/{{ alert_id }}/requeue"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="warn" style="padding:2px 10px;font-size:12px">重推死信</button></form>
+    {% endif %}
+  </span>
+{%- endmacro %}
+{% if msg.startswith('cleared:') %}<div class="flash">已清除 {{ msg.split(':')[-1] }} 条提醒记录</div>
+{% elif msg == 'added' %}<div class="flash">订阅已添加</div>
+{% elif msg == 'updated' %}<div class="flash">订阅已更新</div>
+{% elif msg == 'deleted' %}<div class="flash">订阅已删除（提醒记录一并清除）</div>
+{% elif msg == 'logo_ok' %}<div class="flash">LOGO 已上传</div>
+{% elif msg == 'logo_removed' %}<div class="flash">LOGO 已移除</div>
+{% elif msg == 'bad_logo' %}<div class="flash" style="background:#fdeeee;color:#c93a3f;border-color:#f5c3c5;border-left-color:#e5484d">LOGO 仅限 png/jpg/webp 且 ≤200KB</div>
+{% elif msg == 'bad_title' %}<div class="flash" style="background:#fdeeee;color:#c93a3f;border-color:#f5c3c5;border-left-color:#e5484d">订阅名称不能为空</div>
+{% elif msg == 'bad_date' %}<div class="flash" style="background:#fdeeee;color:#c93a3f;border-color:#f5c3c5;border-left-color:#e5484d">日期格式应为 YYYY-MM-DD</div>
+{% elif msg %}<div class="flash">{{ msg }}</div>{% endif %}
+
+{# 信息组（频率/统计/队列）与添加按钮已上移至页签行（base.html .subtabs） #}
+
+{# 添加订阅弹窗（页面内部窗口） #}
+<div id="submodal" style="display:none">
+  <div class="mbmask"></div>
+  <div class="mbbox">
+    <div class="mbhead"><b>添加订阅</b><button type="button" class="mbx" id="submodalx" title="关闭">×</button></div>
+    <form method="post" action="/subscribe/add" id="addsubform" enctype="multipart/form-data">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="mbgrid">
+        <label>订阅名称 *<input name="title" placeholder="如 CloudCone VPS" required maxlength="60"></label>
+        <label>下次到期日 *<input type="date" name="next_date" value="{{ today }}" required></label>
+        <label>类型
+          <select name="sub_type">
+            <option value="periodic">周期续费</option><option value="once">一次性提醒</option>
+          </select>
+        </label>
+        <label>续费周期
+          <span class="row" style="gap:6px;flex-wrap:nowrap">
+            <select name="period" style="flex:1">
+              <option value="yearly">年付</option><option value="quarterly">季付</option>
+              <option value="monthly" selected>月付</option><option value="weekly">周付</option>
+              <option value="custom">每 N 天</option>
+            </select>
+            <input name="custom_days" value="30" style="width:64px;opacity:.45" inputmode="numeric" disabled title="仅周期=每 N 天时生效">
+          </span>
+        </label>
+        <label>分类
+          <select name="category">{% for c in cats %}<option>{{ c }}</option>{% endfor %}</select>
+        </label>
+        <label>金额
+          <span class="row" style="gap:6px;flex-wrap:nowrap">
+            <input name="amount" placeholder="如 42.68" maxlength="60" style="flex:1">
+            <select name="currency" style="width:110px">{% for k, v in curs.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+          </span>
+        </label>
+        <label style="grid-column:1/-1">备注（可选）<input name="note" placeholder="悬停订阅名称时显示" maxlength="200"></label>
+        <label style="grid-column:1/-1">LOGO（可选，png/jpg/webp ≤200KB，仅列表显示不进推送）
+          <input type="file" name="logo" accept="image/png,image/jpeg,image/webp">
+        </label>
+      </div>
+      <div class="row mbfoot">
+        <button type="submit">保存</button>
+        <button type="button" class="ghostbtn" id="submodalcancel">取消</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+(function(){
+  const m=document.getElementById('submodal'), btn=document.getElementById('addsubbtn'),
+        f=document.getElementById('addsubform');
+  function open(){m.style.display='block';f.title.focus();}
+  function close(){m.style.display='none';}
+  btn.addEventListener('click',open);
+  document.getElementById('submodalx').addEventListener('click',close);
+  document.getElementById('submodalcancel').addEventListener('click',close);
+  m.querySelector('.mbmask').addEventListener('click',close);
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')close();});
+  const p=f.elements.period, c=f.elements.custom_days, st=f.elements.sub_type;
+  function sync(){
+    const off=st.value==='once';
+    p.disabled=off; c.disabled=off||p.value!=='custom';
+    p.style.opacity=p.disabled?'.45':'1'; c.style.opacity=c.disabled?'.45':'1';
+  }
+  p.addEventListener('change',sync); st.addEventListener('change',sync);
+  const msg=new URLSearchParams(location.search).get('msg');
+  if(msg==='bad_title'||msg==='bad_date')open();
+})();
+</script>
+
+{# 标题卡 #}
+<div class="card" style="padding:10px 18px">
+  <div class="subgrid" style="font-weight:600;color:var(--mut)">
+    <div class="sgdiv">订阅logo</div><div class="sgdiv">订阅名称</div><div class="sgdiv">周期</div><div class="sgdiv">下次到期日期</div><div class="sgdiv">金额</div><div class="sgdiv">币种</div><div>操作</div>
+  </div>
+</div>
+
+{% if not subs %}
+<div class="card mut" style="text-align:center;padding:22px">还没有订阅。上方「添加订阅」录入第一条年付/月付续费吧。</div>
+{% endif %}
+{% for s in subs %}
+<div class="card" style="padding:10px 18px">
+  <div class="subgrid">
+    <div class="sgdiv sublogo-cell">
+      {% if s['has_logo'] %}<img src="/subscribe/logo/{{ s['id'] }}" alt="" style="width:134px;height:44px;border-radius:10px;object-fit:contain;border:1px solid var(--bd);background:#fff">
+      {% else %}<span style="width:134px;height:44px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;background:var(--grad);color:#fff;font-weight:700;font-size:19px">{{ s['title'][0] }}</span>{% endif %}
+    </div>
+    <div class="sgdiv"><span class="row" style="gap:6px;justify-content:center"><b style="font-size:17px" {% if s['note'] %}title="{{ s['note'] }}"{% endif %}>{{ s['title'] }}</b>
+      <span class="badge mut" style="padding:2px 10px;font-size:13px">{{ s['category'] }}</span>
+      {% if s['status'] == 'overdue' %}<span class="badge dead" style="font-size:13px">逾期</span>{% endif %}
+    </span></div>
+    <div class="sgdiv"><b style="font-size:17px">{{ s['period_cn'] }}</b>{% if s['period'] == 'custom' %}<span class="mut">（每 {{ s['custom_days'] }} 天）</span>{% endif %}</div>
+    <div class="sgdiv subdate-cell"><span class="row" style="gap:6px;flex-wrap:nowrap"><b style="font-size:17px">{{ s['next_date'] }}</b>
+      {% if s['days_left'] < 0 %}<span class="badge dead" style="font-size:13px">已过 {{ -s['days_left'] }} 天</span>
+      {% elif s['days_left'] == 0 %}<span class="badge ok" style="font-size:13px">今天到期</span>
+      {% elif s['days_left'] == 1 %}<span class="badge pend" style="font-size:13px">明天</span>
+      {% elif s['days_left'] <= 7 %}<span class="badge pend" style="font-size:13px">{{ s['days_left'] }} 天后</span>
+      {% else %}<span class="badge mut" style="padding:2px 9px;font-size:13px">{{ s['days_left'] }} 天后</span>{% endif %}
+    </span></div>
+    <div class="sgdiv">{% if s['amount'] %}<b style="font-size:17px">{{ s['amount'] }}</b>{% else %}<span class="mut">—</span>{% endif %}</div>
+    <div class="sgdiv">{% if s['amount'] %}<b style="font-size:17px">{{ s['cur_sym'] }}</b>{% else %}<span class="mut">—</span>{% endif %}</div>
+    <div style="text-align:center"><button type="button" class="editbtn" title="点击展开修改此订阅"
+      onclick="this.classList.toggle('open');this.closest('.subgrid').querySelector('.editbox').classList.toggle('open')">编辑</button></div>
+    <div class="editbox">
+      <form method="post" action="/subscribe/{{ s['id'] }}/update" style="display:flex;flex-direction:column;gap:6px">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="sub_type" value="{{ s['type'] }}">
+        <input name="title" value="{{ s['title'] }}" maxlength="60" required>
+        <div class="row" style="gap:6px;justify-content:flex-start">
+          <select name="category">{% for c in cats %}<option {{ 'selected' if c == s['category'] }}>{{ c }}</option>{% endfor %}</select>
+          <select name="period" onchange="this.form.elements.custom_days.disabled=(this.value!=='custom');this.form.elements.custom_days.style.opacity=this.value==='custom'?'1':'.45'">
+            {% for k, v in {'yearly':'年付','quarterly':'季付','monthly':'月付','weekly':'周付','custom':'每N天'}.items() %}
+            <option value="{{ k }}" {{ 'selected' if k == s['period'] }}>{{ v }}</option>{% endfor %}
+          </select>
+          <input name="custom_days" value="{{ s['custom_days'] or 30 }}" style="width:78px{% if s['period'] != 'custom' %};opacity:.45{% endif %}" inputmode="numeric" title="仅周期=每 N 天时生效：每隔几天算一期" {{ 'disabled' if s['period'] != 'custom' }}>
+        </div>
+        <div class="row" style="gap:6px;justify-content:flex-start">
+          <input type="date" name="next_date" value="{{ s['next_date'] }}" required style="min-width:140px">
+        </div>
+        <div class="row" style="gap:6px;justify-content:flex-start">
+          <input name="amount" value="{{ s['amount'] }}" placeholder="金额" maxlength="60" style="flex:1;min-width:100px">
+          <select name="currency" title="金额货币">
+            {% for k, v in curs.items() %}<option value="{{ k }}" {{ 'selected' if k == s['currency'] }}>{{ v }}</option>{% endfor %}
+          </select>
+        </div>
+        <input name="note" value="{{ s['note'] }}" placeholder="备注" maxlength="200">
+        <div class="row">
+          <button class="tiny">保存</button>
+        </div>
+      </form>
+      <div class="row" style="gap:8px;margin-top:8px">
+        <label for="sublogo{{ s['id'] }}" class="kw" style="cursor:pointer;font-size:11px" title="上传 LOGO（png/jpg/webp ≤200KB）">+LOGO</label>
+        <form method="post" action="/subscribe/{{ s['id'] }}/logo" enctype="multipart/form-data">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="file" id="sublogo{{ s['id'] }}" name="file" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="this.form.submit()">
+        </form>
+        {% if s['has_logo'] %}
+        <form method="post" action="/subscribe/{{ s['id'] }}/delete"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="logo_only" value="1"><button class="ghost tiny" style="padding:1px 8px;font-size:11px">撤LOGO</button></form>
+        {% endif %}
+        <form method="post" action="/subscribe/{{ s['id'] }}/delete"
+          onsubmit="return confirm('确认删除「{{ s['title'] }}」？其提醒记录与 LOGO 一并删除，不可恢复。')">
+          <input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger tiny">删除此订阅</button>
+        </form>
+      </div>
+      </div>
+  </div>
+</div>
+{% endfor %}
+
+{% if done_subs %}
+<details class="card">
+  <summary><b style="font-size:14px">已完成的一次性提醒</b><span class="mut" style="font-weight:400;margin-left:6px">{{ done_subs|length }} 条</span></summary>
+  <table style="margin-top:10px">
+    {% for s in done_subs %}
+    <tr>
+      <td><b class="mut">{{ s['title'] }}</b> <span class="badge mut" style="padding:2px 10px;font-size:13px">{{ s['category'] }}</span> <span class="mut" style="font-size:11.5px">灰色徽章=已响完</span></td>
+      <td class="mut">{{ s['next_date'] }} · 一次性</td>
+      <td style="width:120px"><span class="badge off">已完成</span>
+        <form method="post" action="/subscribe/{{ s['id'] }}/delete" style="display:inline" onsubmit="return confirm('删除「{{ s['title'] }}」？')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger tiny">删</button></form></td>
+    </tr>
+    {% endfor %}
+  </table>
+</details>
+{% endif %}
+
+
+{% endblock %}

@@ -1,0 +1,7 @@
+.env
+.env.bak*
+data/
+__pycache__/
+.venv/
+PROJECT_NOTES.md
+tests/__pycache__/

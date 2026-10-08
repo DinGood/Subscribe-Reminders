@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>登录 - 订阅提醒</title>
+<style>
+:root{--fg:#1d2438;--mut:#5b667f;--bd:#dfe5f3;--grad:linear-gradient(135deg,#3d7bf7,#8a5cf6)}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:radial-gradient(900px 500px at 80% -10%,rgba(79,141,255,.16),transparent 60%),
+radial-gradient(800px 460px at -10% 110%,rgba(155,107,255,.14),transparent 60%),
+radial-gradient(600px 400px at 105% 90%,rgba(34,193,195,.12),transparent 60%),#e9eefb;
+color:var(--fg);font:14px/1.5 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased}
+.card{background:#fff;border:1px solid var(--bd);
+border-radius:18px;padding:34px 34px 30px;width:340px;box-shadow:0 12px 40px rgba(60,90,180,.18)}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;margin-bottom:6px}
+.logo::before{content:"";width:11px;height:11px;border-radius:50%;background:var(--grad);box-shadow:0 0 12px rgba(99,130,255,.5)}
+.sub{color:var(--mut);font-size:12.5px;margin-bottom:22px}
+input{width:100%;background:#fff;border:1px solid #c6cfe4;color:var(--fg);border-radius:11px;
+padding:11px 13px;margin-bottom:14px;font-size:14px;transition:.15s}
+input::placeholder{color:#8290ab}
+input:focus{outline:none;border-color:#4f6ef7;box-shadow:0 0 0 3px rgba(79,110,247,.15)}
+button{width:100%;background:var(--grad);border:0;color:#fff;border-radius:11px;padding:11px;
+cursor:pointer;font-size:14px;font-weight:600;transition:.15s;box-shadow:0 5px 18px rgba(79,110,247,.32)}
+button:hover{filter:brightness(1.06)}button:active{transform:translateY(1px)}
+.err{color:#e5484d;font-size:12.5px;margin-bottom:12px;background:#fdeeee;
+border:1px solid #f5c3c5;border-radius:9px;padding:7px 11px}
+</style></head><body>
+<form method="post" action="/login" class="card">
+  <div class="logo">订阅提醒</div>
+  <div class="sub">订阅续费提醒 · 管理后台</div>
+  {% if locked %}<div class="err">失败次数过多，已锁定 5 分钟</div>
+  {% elif error == 'locked' %}<div class="err">失败次数过多，请 5 分钟后再试</div>
+  {% elif error == 'csrf' %}<div class="err">会话校验失败（CSRF），请重新登录</div>
+  {% elif error %}<div class="err">密码错误</div>{% endif %}
+  {% if msg == 'changed' %}<div class="flash" style="color:#0a7d50;font-size:12.5px;margin-bottom:12px">密码已修改，请重新登录</div>{% endif %}
+  <input type="password" name="password" placeholder="管理密码" autofocus required>
+  <button type="submit">登录</button>
+</form>
+</body></html>

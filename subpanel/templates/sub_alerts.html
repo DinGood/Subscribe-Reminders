@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block body %}
+{% macro subpushcell(p, alert_id, csrf) -%}  <span class="row" style="gap:5px;border:1px solid var(--bd);border-radius:999px;padding:1px 10px">
+    <span class="mut" style="font-size:11px">{{ {'feishu_bot':'飞书','telegram_bot':'TG Bot','mail':'邮件'}.get(p['wh_fmt'], p['wh_name']) }}</span>
+    {% if p['status'] == 'delivered' %}<span class="badge ok" style="padding:2px 8px" title="{{ p['attempts'] }}次{% if p['response_code'] %} · HTTP{{ p['response_code'] }}{% endif %}">✓</span>
+    {% else %}
+    <span class="badge {{ {'dead':'dead','pending':'pend','retrying':'pend','sending':'pend','none':'mut'}.get(p['status'],'mut') }}">{{ {'dead':'死信','pending':'待推','retrying':'重投中','sending':'发送中','none':'—'}.get(p['status'], p['status']) }}</span>
+    {% if p['status'] != 'none' %}<span class="mut">{{ p['attempts'] }}次{% if p['response_code'] is not none %} · HTTP{{ p['response_code'] }}{% endif %}</span>{% endif %}
+    {% endif %}
+    {% if p['last_error'] %}<span class="mut" title="{{ p['last_error'] }}">{{ p['last_error'][:40] }}</span>{% endif %}
+    {% if p['status'] == 'dead' %}
+    <form method="post" action="/subscribe/alerts/{{ alert_id }}/requeue"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="warn" style="padding:2px 10px;font-size:12px">重推死信</button></form>
+    {% endif %}
+  </span>
+{%- endmacro %}
+{% if msg.startswith('cleared:') %}<div class="flash">已清除 {{ msg.split(':')[-1] }} 条提醒记录</div>
+{% elif msg %}<div class="flash">{{ msg }}</div>{% endif %}
+
+<div class="card row" style="padding:10px 16px">
+  <b style="font-size:15px">提醒记录</b><span class="mut" style="font-weight:400">共 {{ total }} 条</span>
+  <span style="flex:1"></span>
+  <span class="chip" style="font-size:13px">待推 <b>{{ counts.get('pending',0)+counts.get('retrying',0)+counts.get('sending',0) }}</b></span>
+  <span class="chip" style="font-size:13px">死信 <b>{{ counts.get('dead',0) }}</b></span>
+  <span class="chip" style="font-size:13px">成功 <b>{{ counts.get('delivered',0) }}</b></span>
+  <form method="post" action="/subscribe/alerts/clear" onsubmit="return confirm('确认清除全部 {{ total }} 条提醒记录？推送队列记录一并删除，不可恢复。')">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">清除所有记录</button>
+  </form>
+</div>
+{% if rows %}
+{% for a in rows %}
+{% set ps = sp_by_alert.get(a['id'], []) %}
+<div class="card">
+  <div class="row">
+    <b>{{ a['title'] }}</b>
+    <span class="kw">{{ ('提前 ' ~ a['lead_days'] ~ ' 天') if a['lead_days'] > 0 else '到期日' }}</span>
+    <span class="badge mut" style="padding:1px 8px">{{ '一次性' if a['kind'] == 'once' else per_cn.get(a['kind'], '周期') }}</span>
+    {% if a['label'] %}<span class="badge {{ 'pend' if a['label'] == '补发' else 'off' }}">{{ a['label'] }}</span>{% endif %}
+    <span style="flex:1"></span>
+    {% for p in ps %}{{ subpushcell(p, a['id'], csrf) }}{% endfor %}
+    <span class="mut">触发 {{ a['fire_date'] }} {{ '%02d'|format(fq_hour) }}:00 · 记录 {{ a['created_at']|tsfmt }}</span>
+  </div>
+  <div class="mut" style="font-size:12.5px">下次到期 {{ a['next_date'] }}{% if a['money'] %} · {{ a['money'] }}{% endif %}{% if a['note'] %} · {{ a['note'] }}{% endif %}</div>
+  {% if not ps and a['label'] != 'skipped' %}<span class="mut">无启用的推送渠道。</span>{% endif %}
+</div>
+{% if not loop.last %}<div style="height:2px"></div>{% endif %}
+{% endfor %}
+{% if pages > 1 %}
+<div class="card row">
+  {% if page > 1 %}<a href="/subscribe/alerts?page={{ page-1 }}">← 上一页</a>{% endif %}
+  <span class="mut">第 {{ page }} / {{ pages }} 页</span>
+  {% if page < pages %}<a href="/subscribe/alerts?page={{ page+1 }}">下一页 →</a>{% endif %}
+</div>
+{% endif %}
+{% else %}
+{% if not total %}<div style="height:0"></div>{% endif %}
+{% endif %}
+{% endblock %}
