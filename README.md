@@ -29,10 +29,13 @@ services:
     image: ghcr.io/dingood/subscribe-reminders:latest    # 全小写；版本标签形如 1.0.0
     container_name: sub-reminders
     restart: unless-stopped
+    user: "0"                    # 群晖 NAS 必加（见下方说明）；其他宿主可去
     ports:
       - "8766:8766"        # NAS/内网自用；公网机器请只绑 127.0.0.1 并走 SSH 隧道
     volumes:
-      - /volume1/docker/sub-reminders:/data   # 数据目录需 chown 10001:10001（容器内非 root 用户）
+      - /volume1/docker/sub-reminders/data:/data
+    # 群晖 NAS 部署加 user: "0"：命名卷在 Container Manager 界面不可见、目录绑定默认属主 root，
+    # 以 root 运行可免 chown 一步到位（数据目录不存在会自动创建）。其他宿主可不加。
 ```
 
 本机自 build 亦可：
