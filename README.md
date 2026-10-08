@@ -15,6 +15,28 @@ cd "Subscribe Reminders"
 
 ## Docker 部署
 
+**推荐：直接拉公开镜像**（GHCR，匿名可拉，无需登录）：
+
+```bash
+docker pull ghcr.io/dingood/subscribe-reminders:latest   # 或钉版本 :1.0.0
+```
+
+compose 引用：
+
+```yaml
+services:
+  sub-reminders:
+    image: ghcr.io/dingood/subscribe-reminders:latest    # 全小写；版本标签形如 1.0.0
+    container_name: sub-reminders
+    restart: unless-stopped
+    ports:
+      - "8766:8766"        # NAS/内网自用；公网机器请只绑 127.0.0.1 并走 SSH 隧道
+    volumes:
+      - /volume1/docker/sub-reminders:/data   # 数据目录需 chown 10001:10001（容器内非 root 用户）
+```
+
+本机自 build 亦可：
+
 ```bash
 docker build -t sub-reminders .
 docker run -d --name sub-reminders --restart unless-stopped \
@@ -23,35 +45,10 @@ docker run -d --name sub-reminders --restart unless-stopped \
 # 管理访问走 SSH 隧道：ssh -L 8766:127.0.0.1:8766 <vps>
 ```
 
-compose 版——在源码仓库根目录建 `docker-compose.yml`，内容：
-
-```yaml
-services:
-  sub-reminders:
-    build: .
-    image: sub-reminders:latest
-    container_name: sub-reminders
-    restart: unless-stopped
-    ports:
-      # 只绑宿主机 127.0.0.1：管理访问走 SSH 隧道，绝不公网 HTTP
-      - "127.0.0.1:8766:8766"
-    environment:
-      SUB_AUTH_ENABLED: "1"     # 鉴权常开（容器语境默认值本就是 1，写明防误解）
-      # SUB_ADMIN_PASSWORD: *** # 可选：改首启默认口令（默认 admin，改后存 DB）
-      # SUB_COOKIE_SECURE: "1"  # https 反代场景开启
-    volumes:
-      - sub-data:/data          # 必须命名卷（SQLite WAL 对 bind mount 跨文件系统敏感）
-    # ⚠️ 严禁 scale/多实例：调度+推送随进程起，双跑=提醒双发
-
-volumes:
-  sub-data:
-```
-
 ```bash
-docker compose up -d --build    # 构建镜像并起服务
+docker compose up -d            # 拉镜像并起服务（本地自 build 则加 --build）
 docker compose logs -f          # 看运行日志（容器形态 INFO 直出 stdout）
-docker compose down             # 停服（数据留在 sub-data 命名卷，不丢）
-# 管理访问走 SSH 隧道：ssh -L 8766:127.0.0.1:8766 <vps>
+docker compose down             # 停服（数据在挂载卷里，不丢）
 ```
 
 要点：**镜像不含 data/.env**（.dockerignore 已挡），凭据只在命名卷里；时区=调度语义（Dockerfile 已默认上海）；**严禁多 worker/双实例**（调度+推送随进程起，双跑=提醒双发）；https 反代场景设 `SUB_COOKIE_SECURE=***
