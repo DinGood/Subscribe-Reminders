@@ -250,7 +250,7 @@ def _skip(s: dict, lead: int, fire_day: date, conn) -> None:
 
 # 专属渠道行（固定 id，首启自动建）
 CH_FEISHU, CH_MAIL = 101, 103
-DEFAULT_CHANNELS = {"feishu": True, "mail": False}
+DEFAULT_CHANNELS = {"feishu": False, "mail": False}  # 默认双关，用户在设置页自行开启（首启不盲推）
 
 # 金额货币（存代码，展示/推送快照加符号）
 CURRENCIES = {"CNY": "¥", "USD": "US$", "CAD": "C$"}  # 默认映射（settings 无 sub_curs 时用）

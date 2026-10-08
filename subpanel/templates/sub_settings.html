@@ -94,7 +94,11 @@
         <td style="text-align:center"><label class="switch"><input type="checkbox" name="feishu" value="1" {{ 'checked' if chans.feishu }} onchange="this.form.submit()"><span class="slider"></span></label></td>
       </tr>
       <tr>
-        <td><b>邮件</b></td><td class="vdiv mut">纯文本 → SMTP 配置见下方；需先在下方填好主机/账号/授权码/收件邮箱</td>
+        <td><b>邮件</b></td>
+        <td class="vdiv mut">纯文本 → {{ smtp.get('user','') or 'SMTP 未配置' }}{% if smtp.get('to') %} → {{ smtp['to'] }}{% endif %}
+          {% if smtp_ready %}<span class="badge ok" style="margin-left:6px;padding:2px 8px" title="主机 {{ smtp.get('host','') }}:{{ smtp.get('port','') }}｜发件 {{ smtp.get('user','') }}｜授权码已配置（不回显）｜收件 {{ smtp.get('to','') }}">已配置</span>
+          {% else %}<span class="badge pend" style="margin-left:6px;padding:2px 8px" title="主机/端口/发件账号/授权码/收件邮箱任一未填——在下方 SMTP 卡填写保存即生效">未配置完整</span>{% endif %}
+        </td>
         <td style="text-align:center"><label class="switch"><input type="checkbox" name="mail" value="1" {{ 'checked' if chans.mail }} onchange="this.form.submit()"><span class="slider"></span></label></td>
       </tr>
     </table>
@@ -130,9 +134,8 @@
 <div class="card">
   <b style="font-size:15px">SMTP 邮件服务</b>
   <div class="mut" style="margin:2px 0 12px">
-    配置存本机数据库，仅 127.0.0.1 可访问；授权码保存后只回显 ****，不进日志。
-    直连失败会自动经本机 SOCKS5(127.0.0.1:10808) 重试一次。当前状态：
-    {% if smtp_ready %}<span class="badge ok">已就绪</span>{% else %}<span class="badge pend">未配置完整</span>{% endif %}
+    配置存本站数据库（容器内=挂载卷），授权码保存后只回显 ****，不进日志；出站直连 SMTP 服务器。当前状态：
+    {% if smtp_ready %}<span class="badge ok">已配置</span>{% else %}<span class="badge pend">未配置完整</span>{% endif %}
   </div>
   <form method="post" action="/subscribe/settings/smtp">
     <input type="hidden" name="csrf" value="{{ csrf }}">
