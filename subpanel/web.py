@@ -1,6 +1,7 @@
 """订阅提醒站 FastAPI。绑定 127.0.0.1，单管理员密码 + Cookie 会话 + CSRF。"""
 import os
 import hmac
+import ipaddress
 import logging
 import urllib.parse
 import secrets
@@ -153,20 +154,35 @@ async def logout(request: Request):
 
 
 def _expected_hosts() -> set[str]:
-    """受信 Host 集合（防 DNS rebinding：不信任请求自带 Host 参与同源判定）。"""
-    base = {config.HOST, "localhost", "127.0.0.1", "[::1]", "::1"}
+    """受信 Host 集合（防 DNS rebinding：不信任请求自带 Host 参与同源判定）。
+    回环 + 绑定地址 + RFC1918/链路本地 IP（可带端口）恒受信——LAN 直访是本服务合法形态；
+    自定义域名经 .env SUB_ALLOWED_HOSTS 逗号分隔追加。"""
     out = set()
-    for h in base:
+    for h in (config.HOST, "localhost", "127.0.0.1", "[::1]", "::1", *config.ALLOWED_HOSTS):
+        if not h:
+            continue
         out.add(h)
         out.add(f"{h}:{config.PORT}")
     return out
 
 
+def _host_trusted(host: str) -> bool:
+    if host in _expected_hosts():
+        return True
+    name = host.rsplit(":", 1)[0] if (":" in host and not host.startswith("[")) else \
+        (host.split("]", 1)[0] + "]" if host.startswith("[") else host)
+    try:
+        ip = ipaddress.ip_address(name.strip("[]"))
+        return ip.is_private or ip.is_loopback or ip.is_link_local
+    except ValueError:
+        return False
+
+
 def _origin_ok(request: Request) -> bool:
-    """CSRF 同源判定：Host 必须 ∈ 受信集合；Origin/Referer 必须是 http(s)://该host 精确前缀。
+    """CSRF 同源判定：Host 必须受信（见 _host_trusted）；Origin/Referer 必须是 http(s)://该host 精确前缀。
     两者都缺一律拒绝（本服务只接受浏览器同源表单提交）。"""
     host = (request.headers.get("host", "") or "").lower()
-    if not host or host not in _expected_hosts():
+    if not host or not _host_trusted(host):
         return False
     for v in ((request.headers.get("origin") or "").lower(),
               (request.headers.get("referer") or "").lower()):

@@ -11,6 +11,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "subpanel.db"
 
 AUTH_ENABLED = os.environ.get("SUB_AUTH_ENABLED", "1").strip() != "0"
+ALLOWED_HOSTS = {x.strip().lower() for x in os.environ.get("SUB_ALLOWED_HOSTS", "").split(",") if x.strip()}
 HOST = os.environ.get("SUB_HOST", "127.0.0.1")
 PORT = int(os.environ.get("SUB_PORT", "8766"))
 
