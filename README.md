@@ -23,7 +23,18 @@ docker run -d --name sub-reminders --restart unless-stopped \
 # 管理访问走 SSH 隧道：ssh -L 8766:127.0.0.1:8766 <vps>
 ```
 
-compose 版见 `docs/docker-compose.example.yml`。要点：**镜像不含 data/.env**（.dockerignore 已挡），凭据只在命名卷里；时区=调度语义（默认上海）；**严禁多 worker/双实例**（调度+推送随进程起，双跑=提醒双发）；https 反代场景设 `SUB_COOKIE_SECURE=***
+compose 版部署（示例文件在 `docs/` 下）：
+
+```bash
+# 源码仓库根目录内：
+cp docs/docker-compose.example.yml docker-compose.yml
+docker compose up -d --build        # 构建镜像并起服务
+docker compose logs -f              # 看运行日志（容器形态 INFO 直出 stdout）
+docker compose down                 # 停服（数据留在 sub-data 命名卷，不丢）
+# 管理访问走 SSH 隧道：ssh -L 8766:127.0.0.1:8766 <vps>
+```
+
+要点：**镜像不含 data/.env**（.dockerignore 已挡），凭据只在命名卷里；时区=调度语义（默认上海）；**严禁多 worker/双实例**（调度+推送随进程起，双跑=提醒双发）；https 反代场景设 `SUB_COOKIE_SECURE=***
 
 ## 使用流程
 
