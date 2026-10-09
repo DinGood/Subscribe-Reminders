@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS subs(
   amount TEXT NOT NULL DEFAULT '',
   currency TEXT NOT NULL DEFAULT 'CNY',
   note TEXT NOT NULL DEFAULT '',
+  url TEXT NOT NULL DEFAULT '',
   enabled INTEGER NOT NULL DEFAULT 1,
   status TEXT NOT NULL DEFAULT 'active',
   has_logo INTEGER NOT NULL DEFAULT 0,
@@ -83,6 +84,14 @@ def db() -> sqlite3.Connection:
 
 def init_db() -> None:
     db().executescript(SCHEMA)
+    # 轻量列迁移：老库补新列（CREATE IF NOT EXISTS 不会给存量表加列）
+    cols = {r["name"] for r in db().execute("PRAGMA table_info(subs)")}
+    if "url" not in cols:
+        # 并发首启竞态（双进程共享卷）：后进者 ALTER 会撞 duplicate column，列已在 SCHEMA，忽略即可
+        try:
+            db().execute("ALTER TABLE subs ADD COLUMN url TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
     db().commit()
 
 

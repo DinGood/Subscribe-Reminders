@@ -1,0 +1,6 @@
+# 统一 LF：本机 autocrlf=false 但 Windows 编辑器/脚本仍可能写出 CRLF，
+# 整文件 EOL 翻新会把真实改动淹没在 diff 里（2026-10-09 体检教训）。
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.webp binary

@@ -283,16 +283,6 @@ def _valid_date(s: str) -> str:
         return ""
 
 
-def _valid_leads(s: str) -> str:
-    ns = []
-    for x in (s or "").replace("，", ",").split(","):
-        x = x.strip()
-        if x.isdigit() and 0 <= int(x) <= 365:
-            ns.append(int(x))
-    ns = sorted(set(ns), reverse=True)
-    return ",".join(str(n) for n in ns[:10]) or "0"
-
-
 def _sub_row_view(s: dict, today) -> dict:
     from datetime import date as _date
     nd = _date.fromisoformat(s["next_date"])
@@ -314,7 +304,12 @@ def _freq_form(days: str, hour: str) -> tuple[dict, str]:
 
 
 @app.get("/subscribe", response_class=HTMLResponse)
-async def sub_dashboard(request: Request, msg: str = ""):
+async def sub_dashboard(request: Request, msg: str = "", sid: str = ""):
+    # sid 用 str 收再手动解析：int 声明会让 ?sid=abc 整页 422 JSON（同页 page 参数历史已钳制）
+    try:
+        sid_n = int(sid)
+    except ValueError:
+        sid_n = 0
     r = await auth_required(request)
     if r:
         return r
@@ -331,6 +326,8 @@ async def sub_dashboard(request: Request, msg: str = ""):
         request, subs=active, done_subs=done, msg=msg, total=total,
         cats=_cats(), per_cn=_PER_CN, curs=_curs_display(),
         fq_days=fq["days"], fq_hour=int(fq["hour"]),
+        # 更新校验失败回跳时携带的订阅 id：前端据此展开该卡编辑区并聚焦（0=非更新失败）
+        ed_sid=sid_n if any(s["id"] == sid_n for s in subs) else 0,
         today=today.isoformat()))
 
 
@@ -378,12 +375,27 @@ async def sub_alerts(request: Request, page: int = 1, msg: str = ""):
         fq_hour=int(fq["hour"])))
 
 
+def _valid_url(s: str) -> str | None:
+    """跳转链接校验：仅收 http/https 前缀，长度 ≤300；空=不设（非必填）。"""
+    s = s.strip()
+    if not s:
+        return ""
+    if len(s) > 300:
+        return None  # 超长=拒绝而非静默截断（截半 URL 点开必 404）
+    if s.startswith("http://") or s.startswith("https://"):
+        return s
+    return None  # 非法
+
+
 def _sub_form_common(title: str, category: str, period: str, custom_days: str,
                      next_date: str, amount: str, note: str, sub_type: str,
-                     currency: str = "CNY"):
+                     currency: str = "CNY", url: str = ""):
     title = title.strip()[:60]
     if not title:
         return None, "title"
+    u = _valid_url(url)
+    if u is None:
+        return None, "url"
     if category not in _cats():
         category = _FALLBACK_CAT
     if currency not in subwatcher.currencies():
@@ -394,9 +406,11 @@ def _sub_form_common(title: str, category: str, period: str, custom_days: str,
     nd = _valid_date(next_date)
     if not nd:
         return None, "date"
+    if not amount.strip():
+        return None, "amount"  # 金额必填（前端 required+红*，后端同闸）
     # leads=全局设置（提醒设置页），单条订阅不再携带
     return dict(title=title, category=category, type=sub_type, period=period,
-                custom_days=cd, next_date=nd, currency=currency,
+                custom_days=cd, next_date=nd, currency=currency, url=u,
                 amount=amount.strip()[:60], note=note.strip()[:200]), ""
 
 
@@ -405,13 +419,14 @@ async def sub_add(request: Request, title: str = Form(""), category: str = Form(
                   sub_type: str = Form("periodic"), period: str = Form("monthly"),
                   custom_days: str = Form("30"), next_date: str = Form(""),
                   amount: str = Form(""), currency: str = Form("CNY"), note: str = Form(""),
+                  url: str = Form(""),
                   logo: UploadFile = File(None)):
     r = await auth_required(request)
     if r:
         return r
     d, err = _sub_form_common(title, category, period, custom_days, next_date,
                               amount, note, "once" if sub_type == "once" else "periodic",
-                              currency)
+                              currency, url)
     if d is None:
         return RedirectResponse(f"/subscribe?msg=bad_{err}", status_code=303)
     logo_bytes, logo_ext = b"", ""
@@ -423,10 +438,10 @@ async def sub_add(request: Request, title: str = Form(""), category: str = Form(
     conn = db.db()
     cur = conn.execute(
         "INSERT INTO subs(title,category,type,period,custom_days,next_date,leads,amount,"
-        "currency,note,enabled,status,has_logo,fired,last_reminded_at,created_at)"
-        " VALUES(?,?,?,?,?,?,'0',?,?,?,'1','active',0,'',0,?)",
+        "currency,note,url,enabled,status,has_logo,fired,last_reminded_at,created_at)"
+        " VALUES(?,?,?,?,?,?,'0',?,?,?,?,'1','active',0,'',0,?)",
         (d["title"], d["category"], d["type"], d["period"], d["custom_days"],
-         d["next_date"], d["amount"], d["currency"], d["note"], db.now()))
+         d["next_date"], d["amount"], d["currency"], d["note"], d["url"], db.now()))
     sub_id = cur.lastrowid
     if logo_bytes:
         _logo_path(sub_id, logo_ext).write_bytes(logo_bytes)
@@ -441,7 +456,8 @@ async def sub_update(request: Request, sub_id: int,
                      title: str = Form(""), category: str = Form("其他"),
                      sub_type: str = Form("periodic"), period: str = Form("monthly"),
                      custom_days: str = Form("30"), next_date: str = Form(""),
-                     amount: str = Form(""), currency: str = Form("CNY"), note: str = Form("")):
+                     amount: str = Form(""), currency: str = Form("CNY"), note: str = Form(""),
+                     url: str = Form("")):
     r = await auth_required(request)
     if r:
         return r
@@ -450,17 +466,46 @@ async def sub_update(request: Request, sub_id: int,
         return RedirectResponse("/subscribe", status_code=303)
     d, err = _sub_form_common(title, category, period, custom_days, next_date,
                               amount, note, "once" if sub_type == "once" else "periodic",
-                              currency)
+                              currency, url)
     if d is None:
-        return RedirectResponse(f"/subscribe?msg=bad_{err}", status_code=303)
+        # sid=被编辑订阅 id：前端据此展开该卡的编辑区聚焦错处，而非误弹「添加订阅」窗
+        return RedirectResponse(f"/subscribe?msg=bad_{err}&sid={sub_id}", status_code=303)
     db.db().execute(
         "UPDATE subs SET title=?,category=?,type=?,period=?,custom_days=?,next_date=?,"
-        "amount=?,currency=?,note=?,fired='',status='active' WHERE id=?",
+        "amount=?,currency=?,note=?,url=?,fired='',status='active' WHERE id=?",
         (d["title"], d["category"], d["type"], d["period"], d["custom_days"],
-         d["next_date"], d["amount"], d["currency"], d["note"], sub_id))
+         d["next_date"], d["amount"], d["currency"], d["note"], d["url"], sub_id))
     db.db().commit()
     subwatcher.rescan()
     return RedirectResponse("/subscribe?msg=updated", status_code=303)
+
+
+@app.post("/subscribe/{sub_id}/renew")
+async def sub_renew(request: Request, sub_id: int):
+    """一键续期：下次到期日按本订阅周期前进一期（与手改日期同语义=复活重排、清幂等键）。"""
+    r = await auth_required(request)
+    if r:
+        return r
+    s = db.db().execute("SELECT * FROM subs WHERE id=?", (sub_id,)).fetchone()
+    if s is None:
+        return RedirectResponse("/subscribe", status_code=303)
+    if s["type"] != "periodic":
+        return RedirectResponse("/subscribe?msg=bad_renew", status_code=303)
+    from datetime import date as _date
+    try:
+        nd = subwatcher.advance(_date.fromisoformat(s["next_date"]),
+                                s["period"], s["custom_days"] or 0)
+    except ValueError:
+        return RedirectResponse("/subscribe?msg=bad_renew", status_code=303)
+    db.db().execute("UPDATE subs SET next_date=?,fired='',status='active' WHERE id=? AND next_date=?",
+                    (nd.isoformat(), sub_id, s["next_date"]))
+    if db.db().execute("SELECT changes()").fetchone()[0] == 0:
+        # 乐观锁：期间该行到期日已被调度推进/记录被删=放弃本次续期，防读-改-写覆盖
+        db.db().rollback()
+        return RedirectResponse("/subscribe?msg=bad_renew", status_code=303)
+    db.db().commit()
+    subwatcher.rescan()
+    return RedirectResponse("/subscribe?msg=renewed", status_code=303)
 
 
 def db_now_date() -> str:
@@ -676,7 +721,7 @@ async def sub_cur_add(request: Request, code: str = Form(""), name: str = Form("
     if any(x["code"] == code for x in table):
         return RedirectResponse("/subscribe/settings?msg=dup_cur", status_code=303)
     if len(table) >= 16:
-        return RedirectResponse("/subscribe/settings?msg=too_many_cat", status_code=303)
+        return RedirectResponse("/subscribe/settings?msg=too_many_cur", status_code=303)
     table = table + [{"code": code, "name": name, "sym": sym}]
     import json as _json
     db.set_setting(subwatcher._SUB_CURS_KEY, _json.dumps(table, ensure_ascii=False))

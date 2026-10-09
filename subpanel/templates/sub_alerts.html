@@ -22,7 +22,7 @@
   <span class="chip" style="font-size:13px">待推 <b>{{ counts.get('pending',0)+counts.get('retrying',0)+counts.get('sending',0) }}</b></span>
   <span class="chip" style="font-size:13px">死信 <b>{{ counts.get('dead',0) }}</b></span>
   <span class="chip" style="font-size:13px">成功 <b>{{ counts.get('delivered',0) }}</b></span>
-  <form method="post" action="/subscribe/alerts/clear" onsubmit="return confirm('确认清除全部 {{ total }} 条提醒记录？推送队列记录一并删除，不可恢复。')">
+  <form method="post" action="/subscribe/alerts/clear" data-confirm="确认清除全部 {{ total }} 条提醒记录？推送队列记录一并删除，不可恢复。" onsubmit="return __cf(this)">
     <input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">清除所有记录</button>
   </form>
 </div>
@@ -34,7 +34,7 @@
     <b>{{ a['title'] }}</b>
     <span class="kw">{{ ('提前 ' ~ a['lead_days'] ~ ' 天') if a['lead_days'] > 0 else '到期日' }}</span>
     <span class="badge mut" style="padding:1px 8px">{{ '一次性' if a['kind'] == 'once' else per_cn.get(a['kind'], '周期') }}</span>
-    {% if a['label'] %}<span class="badge {{ 'pend' if a['label'] == '补发' else 'off' }}">{{ a['label'] }}</span>{% endif %}
+    {% if a['label'] %}<span class="badge {{ 'pend' if a['label'] == '补发' else 'off' }}" {% if a['label'] == 'skipped' %}title="错过检查时点且已隔日，该发作废不追发"{% endif %}>{{ '已作废' if a['label'] == 'skipped' else a['label'] }}</span>{% endif %}
     <span style="flex:1"></span>
     {% for p in ps %}{{ subpushcell(p, a['id'], csrf) }}{% endfor %}
     <span class="mut">触发 {{ a['fire_date'] }} {{ '%02d'|format(fq_hour) }}:00 · 记录 {{ a['created_at']|tsfmt }}</span>

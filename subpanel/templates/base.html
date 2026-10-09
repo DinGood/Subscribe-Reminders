@@ -202,7 +202,7 @@ input:checked + .slider:before{transform:translateX(20px)}
   <a href="/subscribe/settings" class="{{ 'on' if path.startswith('/subscribe/settings') else '' }}">设置</a>
   {% if path=='/subscribe' %}
   <div class="tabtools" style="margin-left:auto">
-    <span class="chip" style="white-space:nowrap;font-size:14px" title="全模块统一频率，在「设置」调整｜每日连催：从提前 N 天起每天一提，直到到期当天；周期项自动推算下次到期日；错过时点当天补发，隔日记 skipped"><span class="dot" style="background:var(--acc)"></span>每天 {{ '%02d'|format(fq_hour) }}:00 · 提前 {{ fq_days }} 天（含当天）</span>
+    <span class="chip" style="white-space:nowrap;font-size:14px" title="全模块统一频率，在「设置」调整｜每日连催：从提前 N 天起每天一提，直到到期当天；周期项自动推算下次到期日；错过时点当天补发，隔日作废记「已作废」"><span class="dot" style="background:var(--acc)"></span>每天 {{ '%02d'|format(fq_hour) }}:00 · 提前 {{ fq_days }} 天（含当天）</span>
     <span class="tabsep"></span>
     <span class="chip" style="white-space:nowrap;font-size:14px" title="7天内到期=下次到期在 7 天内的订阅数｜累计提醒=提醒记录总条数">7天内到期 <b style="color:var(--fg)">{{ subs|selectattr('days_left', 'le', 7)|list|length }}</b> · 累计提醒 <b style="color:var(--fg)">{{ total }}</b></span>
   </div>
@@ -213,6 +213,9 @@ input:checked + .slider:before{transform:translateX(20px)}
 {% block body %}{% endblock %}
 </main>
 <script>setTimeout(()=>{const f=document.querySelector('.flash');if(f)f.remove()},2000)
+// 删除类二次确认统一入口：文案放 data-confirm（HTML 属性上下文，Jinja 转义安全），
+// 严禁把用户串拼进 onsubmit JS 字符串——属性实体解码会破 JS 语法（可注入+确认静默失效）
+window.__cf=function(fm){return confirm(fm.dataset.confirm||'确认执行此操作？');};
 // 后台管理弹层：点外部关闭；提交表单时一并收起
 const ap=document.getElementById('adminpop');
 if(ap){

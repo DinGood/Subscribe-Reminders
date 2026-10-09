@@ -7,7 +7,8 @@
               'cat_added':'分类已添加','cat_deleted':'分类已删除','bad_cat':'分类名不能为空','feishu_saved':'飞书配置已保存（即时生效，授权码/Secret 不回显）',
               'dup_cat':'该分类已存在','too_many_cat':'分类数量已达上限（20 个）','no_cat':'该分类不存在','last_cat':'至少保留一个分类',
               'cur_added':'币种已添加','cur_deleted':'币种已删除','bad_cur':'代码/名称/符号都必填',
-              'dup_cur':'该代码已存在','no_cur':'该币种不存在','last_cur':'至少保留一个币种'} %}
+              'dup_cur':'该代码已存在','no_cur':'该币种不存在','last_cur':'至少保留一个币种',
+              'too_many_cur':'币种数量已达上限（16 个）','short':'新密码太短（至少 8 位）'} %}
 {% if msg.startswith('test_feishu:') and msg != 'test_feishu:ok' %}<div class="flash" style="background:#fdeeee;color:#c93a3f;border-color:#f5c3c5;border-left-color:#e5484d">飞书测试未通过（{{ msg.split(':')[1] }}）：<span style="word-break:break-all">{{ msg.split(':',2)[2] if msg.count(':')>1 else '未知异常' }}</span></div>
 {% elif msg.startswith('test_mail:') and msg != 'test_mail:ok' %}<div class="flash" style="background:#fdeeee;color:#c93a3f;border-color:#f5c3c5;border-left-color:#e5484d">邮件测试未通过（{{ msg.split(':')[1] }}）：<span style="word-break:break-all">{{ msg.split(':',2)[2] if msg.count(':')>1 else '未知异常' }}</span></div>
 {% elif msg.startswith('cat_in_use:') %}<div class="flash">该分类下还有 {{ msg.split(':')[-1] }} 个订阅，先把它们改掉或再添加一个同名分类后再删</div>
@@ -15,7 +16,7 @@
 
 <div class="card">
   <b style="font-size:15px">提醒频率</b>
-  <div class="mut" style="margin:2px 0 10px">全模块统一生效（不按单条订阅配置）：周期订阅从到期前所选天数起、每天这个钟点各推一条，<b>到期当天默认必提</b>；一次性项只在当天该钟点推一次。错过时点当天启动会补发，隔日记 skipped。</div>
+  <div class="mut" style="margin:2px 0 10px">全模块统一生效（不按单条订阅配置）：周期订阅从到期前所选天数起、每天这个钟点各推一条，<b>到期当天默认必提</b>；一次性项只在当天该钟点推一次。错过时点当天启动会补发，隔日记「已作废」。</div>
   <form method="post" action="/subscribe/settings/frequency">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="row">
@@ -41,7 +42,7 @@
     {% for c in cats %}
     <span class="chip" style="font-size:13px">{{ c }}{% if cat_counts.get(c) %} · {{ cat_counts.get(c) }} 个订阅{% endif %}
       <form method="post" action="/subscribe/settings/categories/delete" style="display:inline;margin-left:4px"
-            onsubmit="return confirm('删除分类「{{ c }}」？')">
+            onsubmit="return __cf(this)" data-confirm="删除分类「{{ c }}」？">
         <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="name" value="{{ c }}">
         <button class="editbtn" type="submit" title="删除分类" style="background:none;border:0;box-shadow:none;color:var(--danger);cursor:pointer;font-size:12px;padding:0">×</button>
       </form>
@@ -62,7 +63,7 @@
     {% for c in curs %}
     <span class="chip" style="font-size:13px">{{ c.code }} {{ c.name }} {{ c.sym }}
       <form method="post" action="/subscribe/settings/currencies/delete" style="display:inline;margin-left:4px"
-            onsubmit="return confirm('删除币种「{{ c.code }} {{ c.name }}」？')">
+            onsubmit="return __cf(this)" data-confirm="删除币种「{{ c.code }} {{ c.name }}」？">
         <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="code" value="{{ c.code }}">
         <button type="submit" title="删除币种" style="background:none;border:0;box-shadow:none;color:var(--danger);cursor:pointer;font-size:12px;padding:0">×</button>
       </form>

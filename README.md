@@ -11,14 +11,14 @@ cd "Subscribe Reminders"
 .venv\Scripts\python run_sub.py      # 启动 http://127.0.0.1:8766
 ```
 
-首次访问跳登录页，默认密码 `admin`（登录后到顶栏「改密」修改，改后存 DB；可用环境变量 `SUB_ADMIN_PASSWORD` 改默认值）。Linux 下用 `.venv/bin/python run_sub.py`。
+首次访问跳登录页，默认密码 `admin`（登录后经顶栏「后台管理」下拉修改，改后存 DB；可用环境变量 `SUB_ADMIN_PASSWORD` 改默认值）。Linux 下用 `.venv/bin/python run_sub.py`。
 
 ## Docker 部署
 
 **推荐：直接拉公开镜像**（GHCR，匿名可拉，无需登录）：
 
 ```bash
-docker pull ghcr.io/dingood/subscribe-reminders:latest   # 或钉版本 :1.0.0
+docker pull ghcr.io/dingood/subscribe-reminders:latest   # 或钉版本 :1.0.2
 ```
 
 compose 引用：
@@ -54,18 +54,20 @@ docker compose logs -f          # 看运行日志（容器形态 INFO 直出 std
 docker compose down             # 停服（数据在挂载卷里，不丢）
 ```
 
-要点：**镜像不含 data/.env**（.dockerignore 已挡），凭据只在命名卷里；时区=调度语义（Dockerfile 已默认上海）；**严禁多 worker/双实例**（调度+推送随进程起，双跑=提醒双发）；https 反代场景设 `SUB_COOKIE_SECURE=***
+要点：**镜像不含 data/.env**（.dockerignore 已挡），凭据只在挂载卷里；时区=调度语义（Dockerfile 已默认上海）；**严禁多 worker/双实例**（调度+推送随进程起，双跑=提醒双发）；https 反代场景设 `SUB_COOKIE_SECURE=1`。
 
 ## 使用流程
 
-1. 「订阅总览」：右上「＋ 添加订阅」弹窗——名称/下次到期日/周期(+每N天)/分类/金额+货币/备注/LOGO(可选)
+1. 「订阅总览」：右上「＋ 添加订阅」弹窗——名称/下次到期日/周期(+每N天)/分类/金额+货币/续费网站(可选)/备注/LOGO(可选)；填了续费网站的订阅，单击名称即新窗口打开该网站，续费操作一步直达
 2. 「设置」：提醒频率（提前 1-7 天 + 每天几点检查，全模块统一）、分类管理、币种管理、飞书机器人接入（App ID/Secret/Chat ID 存库、脱敏回显）、渠道开关+发测试、SMTP
 3. 「提醒记录」：历史提醒与各渠道送达状态（✓/死信重推）、清除记录
+4. 行内「▸ 编辑」展开编辑区：改配置+「⟳ 一键续期」（已续费时到期日按周期直接推进一期，无需手填新日期）
 
 ## 关键约定
 
-- 每天检查钟点一到自动扫描；**电脑关机/睡眠错过当天=那发作废记 skipped，次日连催继续**（要 24/7 请上 VPS，见 PROJECT_NOTES 待办）
+- 每天检查钟点一到自动扫描；**电脑关机/睡眠错过当天=那发作废（记录标「已作废」），次日连催继续**（要 24/7 请上 VPS，见 PROJECT_NOTES 待办）
 - 到期日自动按日历推算下一期（短月钳月末）；手改日期=重新排期
+- 金额必填：名称/下次到期日/类型/续费周期/分类/金额均带红 `*`（分类/周期/金额空或不合法会被拦下重填）；续费网站/备注/LOGO 选填
 - 分类下有订阅时不能删分类；「未分类」是代码回退位
 
 ## 安全
