@@ -1,77 +1,63 @@
 # Subscribe Reminders — 订阅提醒
 
-订阅续费到期提醒站：周期项（年/季/月/周/每N天）+一次性项，全局频率**每日连催**（提前 1-7 天起每天一提直到到期当天），推送飞书卡片 / SMTP 邮件；订阅列表带 LOGO、金额货币、分类管理、提醒记录页。
+订阅续费到期提醒站：周期项（年/季/月/周/每N天）+ 一次性项，全局频率**每日连催**（提前 1-7 天起每天一提，直到到期当天），推送**飞书卡片 / SMTP 邮件**。单进程 FastAPI + 单个 SQLite 文件，零外部依赖，开箱即 Docker 化。
 
-单进程 FastAPI 应用，数据全在一个 SQLite 文件里，无外部数据库/消息队列依赖，可直接 Docker 化部署。飞书凭据在**本库内**管理（设置页直接填，保存即生效）。
+功能：订阅卡片列表（LOGO、金额+币种、分类管理）· 续费网站外链（填了链接的订阅，单击名称新窗口直达续费页）· 行内编辑 + **一键续期**（续费完成后到期日按周期一键推进）· 提醒记录页（送达状态/死信重推）· 登录防暴力 + CSRF。飞书/SMTP 凭据存库内，设置页填写即生效。
 
 ## 快速开始
 
 ```bash
-cd "Subscribe Reminders"
-.venv\Scripts\python run_sub.py      # 启动 http://127.0.0.1:8766
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt        # Windows: .venv\Scripts\pip
+.venv/bin/python run_sub.py                      # Windows: .venv\Scripts\python → http://127.0.0.1:8766
 ```
 
-首次访问跳登录页，默认密码 `admin`（登录后经顶栏「后台管理」下拉修改，改后存 DB；可用环境变量 `SUB_ADMIN_PASSWORD` 改默认值）。Linux 下用 `.venv/bin/python run_sub.py`。
+首次访问跳登录页，默认密码 `admin`（登录后经顶栏「后台管理」修改，改后存库；可用环境变量 `SUB_ADMIN_PASSWORD` 改默认值）。
 
 ## Docker 部署
 
-**推荐：直接拉公开镜像**（GHCR，匿名可拉，无需登录）：
-
-```bash
-docker pull ghcr.io/dingood/subscribe-reminders:latest   # 或钉版本 :1.0.2
-```
-
-compose 引用：
+直接拉公开镜像（GHCR，匿名可拉，无需登录）：
 
 ```yaml
 services:
   sub-reminders:
-    image: ghcr.io/dingood/subscribe-reminders:latest    # 全小写；版本标签形如 1.0.0
+    image: ghcr.io/dingood/subscribe-reminders:1.0.3   # 或 :latest
     container_name: sub-reminders
     restart: unless-stopped
-    user: "0"                    # 群晖 NAS 必加（见下方说明）；其他宿主可去
+    user: "0"                     # 群晖 NAS 必加（免 chown）；其他宿主可去
     ports:
-      - "8766:8766"        # NAS/内网自用；公网机器请只绑 127.0.0.1 并走 SSH 隧道
+      - "8766:8766"               # 内网自用；公网机器请只绑 127.0.0.1 走 SSH 隧道
     volumes:
-      - /volume1/docker/sub-reminders/data:/data
-    # 群晖 NAS 部署加 user: "0"：命名卷在 Container Manager 界面不可见、目录绑定默认属主 root，
-    # 以 root 运行可免 chown 一步到位（数据目录不存在会自动创建）。其他宿主可不加。
-```
-
-本机自 build 亦可：
-
-```bash
-docker build -t sub-reminders .
-docker run -d --name sub-reminders --restart unless-stopped \
-  -p 127.0.0.1:8766:8766 -v sub-data:/data \
-  -e SUB_HOST=0.0.0.0 -e TZ=Asia/Shanghai sub-reminders
-# 管理访问走 SSH 隧道：ssh -L 8766:127.0.0.1:8766 <vps>
+      - ./data:/data              # 目录绑定即可；升级换 tag，数据不动
 ```
 
 ```bash
-docker compose up -d            # 拉镜像并起服务（本地自 build 则加 --build）
-docker compose logs -f          # 看运行日志（容器形态 INFO 直出 stdout）
-docker compose down             # 停服（数据在挂载卷里，不丢）
+docker compose up -d              # 起服务；docker compose logs -f 看运行日志
 ```
 
-要点：**镜像不含 data/.env**（.dockerignore 已挡），凭据只在挂载卷里；时区=调度语义（Dockerfile 已默认上海）；**严禁多 worker/双实例**（调度+推送随进程起，双跑=提醒双发）；https 反代场景设 `SUB_COOKIE_SECURE=1`。
+要本地自构建：`docker build -t sub-reminders .` 后把 image 改成 `sub-reminders` 即可（正式镜像由 CI 构建推 GHCR，见 `.github/workflows`）。
+
+### 部署要点
+
+- **严禁多 worker / 双实例**：调度与推送随进程起，双跑 = 提醒双发
+- 镜像不含 `data/`/`.env`（`.dockerignore` 强制）；凭据只存在挂载卷的 SQLite 里——**数据库含飞书 Secret / SMTP 授权码明文，按敏感资产保管**
+- 时区 = 调度语义：镜像默认 `Asia/Shanghai`，改时区需同步改 compose 的 `TZ`
+- https 反代场景设 `SUB_COOKIE_SECURE=1`；局域网 IP 访问原生支持
 
 ## 使用流程
 
-1. 「订阅总览」：右上「＋ 添加订阅」弹窗——名称/下次到期日/周期(+每N天)/分类/金额+货币/续费网站(可选)/备注/LOGO(可选)；填了续费网站的订阅，单击名称即新窗口打开该网站，续费操作一步直达
-2. 「设置」：提醒频率（提前 1-7 天 + 每天几点检查，全模块统一）、分类管理、币种管理、飞书机器人接入（App ID/Secret/Chat ID 存库、脱敏回显）、渠道开关+发测试、SMTP
-3. 「提醒记录」：历史提醒与各渠道送达状态（✓/死信重推）、清除记录
-4. 行内「▸ 编辑」展开编辑区：改配置+「⟳ 一键续期」（已续费时到期日按周期直接推进一期，无需手填新日期）
+1. **订阅总览** → 右上「＋ 添加订阅」：名称/到期日/类型/周期(+每N天)/分类/金额+币种必填（红 `*`），续费网站/备注/LOGO 选填
+2. 续费完成后在该行「▸ 编辑」里点 **「⟳ 一键续期」**：到期日按本订阅周期自动推进一期，提醒随之重排
+3. **设置**：提醒频率（提前 1-7 天 + 每天几点检查，全模块统一）、分类/币种管理、飞书机器人接入、渠道开关 + 发测试、SMTP
+4. **提醒记录**：每条提醒的渠道送达状态（✓ 已送达 / 待推 / 死信可重推），支持一键清除
 
-## 关键约定
+## 关键行为
 
-- 每天检查钟点一到自动扫描；**电脑关机/睡眠错过当天=那发作废（记录标「已作废」），次日连催继续**（要 24/7 请上 VPS，见 PROJECT_NOTES 待办）
-- 到期日自动按日历推算下一期（短月钳月末）；手改日期=重新排期
-- 金额必填：名称/下次到期日/类型/续费周期/分类/金额均带红 `*`（分类/周期/金额空或不合法会被拦下重填）；续费网站/备注/LOGO 选填
-- 分类下有订阅时不能删分类；「未分类」是代码回退位
+- 到期日自动按日历推算下一期（短月钳月末，如 1/31 → 2/28）；手改日期 = 重新排期
+- 关机/睡眠错过当天钟点：服务醒来即补发；整天错过 = 那发作废（记录标「已作废」，不追发）——需要 24/7 常驻请部署在常开设备（NAS/服务器）
+- 推送渠道独立开关（飞书/邮件），停用渠道在提醒生成时不入队
+- 分类下还有订阅时不能删；币种删除不影响历史记录里的金额快照
 
-## 安全
+## 开发
 
-`data/subpanel.db` 含飞书 App Secret 与 SMTP 授权码明文——**敏感资产**，服务只绑 127.0.0.1，文件权限当钥匙管；错误回显过 `_scrub()`。
-
-> 决策依据、UI 规格、踩坑、验证记录全部在 `PROJECT_NOTES.md`。
+`tests/` 三套回归（鉴权流 / 调度离线断言 / 外链+必填+续期 E2E），拉起服务后 `python tests/test_auth_flow.py` 等逐个跑即可。
