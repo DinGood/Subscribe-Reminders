@@ -104,6 +104,26 @@ saved = open(lp, "rb").read()
 check("命名空间前缀 <p:script> 被剥离（净身入库）",
       r.geturl().endswith("logo_ok") and b"script" not in saved.lower())
 
+# 10-10 DMIT 事故回归：Affinity/设计工具导出的 <image href="data:image/png;base64,...">
+# 内嵌位图是常规形态，曾被正则误剥导致 logo 缺块——净化后 base64 载荷必须仍在库里
+r = upload_logo(pid, tok, "i.svg",
+                b'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"'
+                b' viewBox="0 0 10 10"><rect width="10" height="10" fill="#06f"/>'
+                b'<image href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ'
+                b'AAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" width="5" height="5"/></svg>')
+saved = open(lp, "rb").read()
+check("内嵌 data:image/png;base64 位图放行且载荷不剥",
+      r.geturl().endswith("logo_ok") and b"data:image/png;base64," in saved)
+# 但 data: 口子只给 image 元素的位图格式：svg+xml（foreign pass）、text/html、非 image 元素仍整图拒
+for name, body in (
+    ("data:image/svg+xml 拒绝", b'<svg xmlns="x"><image href="data:image/svg+xml;base64,AAAA"/><rect/></svg>'),
+    ("data:text/html 拒绝", b'<svg xmlns="x"><image href="data:text/html;base64,AAAA"/><rect/></svg>'),
+    ("rect 元素挂 data: 拒绝", b'<svg xmlns="x"><rect href="data:image/png;base64,AAAA"/></svg>'),
+    ("image 挂非 base64 位图拒绝", b'<svg xmlns="x"><image href="data:image/tiff;base64,AAAA"/><rect/></svg>'),
+):
+    r = upload_logo(pid, tok, "z.svg", body)
+    check(name, r.geturl().endswith("bad_logo"))
+
 r = upload_logo(pid, tok, "b.svg", b'<svg' + bytes(range(0x80, 0xff, 2)))
 check("非 UTF-8 伪 SVG 拒绝 bad_logo", r.geturl().endswith("bad_logo"))
 

@@ -612,8 +612,14 @@ _SVG_DROP_PATTERNS = [
     re.compile(rb"<\?xml-stylesheet.*?\?>", re.S | re.I),           # PI 引外部样式（ET 不报，须正则剥）
     re.compile(rb"<!\[CDATA\[.*?\]\]>", re.S),
     re.compile(rb"\son\w+\s*=\s*(\"[^\"]*\"|'[^']*'|[^\s>]+)", re.I),  # 事件属性
-    re.compile(rb"(\s(?:xlink:)?href\s*=\s*)(['\"])\s*(?:javascript|data|vbscript):[^'\"]*\2", re.I | re.S),
+    # js/vbscript scheme 直剥；data: 不在这剥——<image> 内嵌 base64 位图是 Affinity/AI 导出
+    # 常规形态（10-10 曾误剥致 DMIT 标缺失），交终审白名单判：仅 image 元素 href= 的
+    # data:image/{png,jpeg,gif,webp};base64 放行，其余 data:（text/html、svg+xml、非 image 元素）整图拒绝
+    re.compile(rb"\s(?:xlink:)?href\s*=\s*(['\"])\s*(?:javascript|vbscript):[^'\"]*\1", re.I | re.S),
 ]
+
+# 内嵌位图唯一合法形态（已按小写值匹配）：整值 fullmatch，载荷限 base64 字母表
+_DATA_IMAGE_OK = re.compile(r"data:image/(?:png|jpe?g|gif|webp);base64,[a-z0-9+/=\s]+$")
 
 
 def _svg_sanitize(data: bytes) -> bytes | None:
@@ -643,8 +649,15 @@ def _svg_sanitize(data: bytes) -> bytes | None:
         for k, v in el.attrib.items():
             kl = k.rsplit("}", 1)[-1].lower()
             vv = (v or "").strip().lower()   # ET 已解实体：&#106;avascript: 到这里是明文
-            if kl.startswith("on") or vv.startswith(("javascript:", "data:", "vbscript:")):
+            if kl.startswith("on"):
                 return None
+            if vv.startswith(("javascript:", "vbscript:")):
+                return None
+            if vv.startswith("data:"):
+                # 内嵌位图白名单：仅 <image> 元素的 href/src 属性
+                # data:image/{png,jpeg,gif,webp};base64,合法字母表
+                if tag != "image" or kl not in ("href", "src") or not _DATA_IMAGE_OK.fullmatch(vv):
+                    return None
     return out
 
 

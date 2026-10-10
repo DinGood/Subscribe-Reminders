@@ -21,7 +21,7 @@ python -m venv .venv
 ```yaml
 services:
   sub-reminders:
-    image: ghcr.io/dingood/subscribe-reminders:1.0.4   # 或 :latest
+    image: ghcr.io/dingood/subscribe-reminders:1.0.5   # 或 :latest
     container_name: sub-reminders
     restart: unless-stopped
     user: "0"                     # 群晖 NAS 必加（免 chown）；其他宿主可去
