@@ -33,7 +33,7 @@
   <div class="row">
     <b>{{ a['title'] }}</b>
     <span class="kw">{{ ('提前 ' ~ a['lead_days'] ~ ' 天') if a['lead_days'] > 0 else '到期日' }}</span>
-    <span class="badge mut" style="padding:1px 8px">{{ '一次性' if a['kind'] == 'once' else per_cn.get(a['kind'], '周期') }}</span>
+    <span class="badge mut" style="padding:1px 8px">{% if a['kind'] == 'once' %}一次性{% elif a['kind'] == 'custom' %}每 {{ a['sub_custom_days'] or '?' }} 天{% else %}{{ per_cn.get(a['kind'], '周期') }}{% endif %}</span>
     {% if a['label'] %}<span class="badge {{ 'pend' if a['label'] == '补发' else 'off' }}" {% if a['label'] == 'skipped' %}title="错过检查时点且已隔日，该发作废不追发"{% endif %}>{{ '已作废' if a['label'] == 'skipped' else a['label'] }}</span>{% endif %}
     <span style="flex:1"></span>
     {% for p in ps %}{{ subpushcell(p, a['id'], csrf) }}{% endfor %}

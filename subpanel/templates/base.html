@@ -204,7 +204,7 @@ input:checked + .slider:before{transform:translateX(20px)}
   <div class="tabtools" style="margin-left:auto">
     <span class="chip" style="white-space:nowrap;font-size:14px" title="全模块统一频率，在「设置」调整｜每日连催：从提前 N 天起每天一提，直到到期当天；周期项自动推算下次到期日；错过时点当天补发，隔日作废记「已作废」"><span class="dot" style="background:var(--acc)"></span>每天 {{ '%02d'|format(fq_hour) }}:00 · 提前 {{ fq_days }} 天（含当天）</span>
     <span class="tabsep"></span>
-    <span class="chip" style="white-space:nowrap;font-size:14px" title="7天内到期=下次到期在 7 天内的订阅数｜累计提醒=提醒记录总条数">7天内到期 <b style="color:var(--fg)">{{ subs|selectattr('days_left', 'le', 7)|list|length }}</b> · 累计提醒 <b style="color:var(--fg)">{{ total }}</b></span>
+    <span class="chip" style="white-space:nowrap;font-size:14px" title="7天内到期订阅=下次到期在 7 天内的订阅数｜累计提醒=提醒记录总条数">7天内到期订阅 <b style="color:var(--fg)">{{ subs|selectattr('days_left', 'le', 7)|list|length }}</b> · 累计提醒 <b style="color:var(--fg)">{{ total }}</b></span>
   </div>
   <button type="button" id="addsubbtn" class="tiny" style="font-size:14px;padding:7px 18px;align-self:center">＋ 添加订阅</button>
   {% endif %}

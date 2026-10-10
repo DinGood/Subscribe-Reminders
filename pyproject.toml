@@ -1,6 +1,6 @@
 [project]
 name = "sub-reminders"
-version = "1.0.3"
+version = "1.0.4"
 description = "Subscription renewal reminder site: scheduler + feishu/mail push + admin panel"
 requires-python = ">=3.11"
 dependencies = [

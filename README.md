@@ -21,7 +21,7 @@ python -m venv .venv
 ```yaml
 services:
   sub-reminders:
-    image: ghcr.io/dingood/subscribe-reminders:1.0.3   # 或 :latest
+    image: ghcr.io/dingood/subscribe-reminders:1.0.4   # 或 :latest
     container_name: sub-reminders
     restart: unless-stopped
     user: "0"                     # 群晖 NAS 必加（免 chown）；其他宿主可去
@@ -47,7 +47,7 @@ docker compose up -d              # 起服务；docker compose logs -f 看运行
 ## 使用流程
 
 1. **订阅总览** → 右上「＋ 添加订阅」：名称/到期日/类型/周期(+每N天)/分类/金额+币种必填（红 `*`），续费网站/备注/LOGO 选填
-2. 续费完成后在该行「▸ 编辑」里点 **「⟳ 一键续期」**：到期日按本订阅周期自动推进一期，提醒随之重排
+2. 续费完成后在该行点「编辑」展开，再点 **「⟳ 一键续期」**：到期日按本订阅周期自动推进一期，提醒随之重排
 3. **设置**：提醒频率（提前 1-7 天 + 每天几点检查，全模块统一）、分类/币种管理、飞书机器人接入、渠道开关 + 发测试、SMTP
 4. **提醒记录**：每条提醒的渠道送达状态（✓ 已送达 / 待推 / 死信可重推），支持一键清除
 
@@ -60,4 +60,4 @@ docker compose up -d              # 起服务；docker compose logs -f 看运行
 
 ## 开发
 
-`tests/` 三套回归（鉴权流 / 调度离线断言 / 外链+必填+续期 E2E），拉起服务后 `python tests/test_auth_flow.py` 等逐个跑即可。
+`tests/` 四套回归（鉴权流 / 调度离线断言 / 外链+必填+续期 E2E / SVG 净化），拉起服务后 `python tests/test_auth_flow.py` 等逐个跑即可。

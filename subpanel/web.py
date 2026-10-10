@@ -1,5 +1,6 @@
 """订阅提醒站 FastAPI。绑定 127.0.0.1，单管理员密码 + Cookie 会话 + CSRF。"""
 import os
+import re
 import hmac
 import ipaddress
 import logging
@@ -283,6 +284,12 @@ def _valid_date(s: str) -> str:
         return ""
 
 
+def _amount_is_zero(v: str | None) -> bool:
+    """金额值是纯零数（'0'/'0.00'/'-0'）=免费/无金额，列表币种列以 / 占位。
+    收紧口径（10-10 审查项）：fullmatch 数字零，排除全角 ０/下划线字面量/0元 等混入。"""
+    return bool(re.fullmatch(r"[-+]?0+(\.0+)?", (v or "").strip()))
+
+
 def _sub_row_view(s: dict, today) -> dict:
     from datetime import date as _date
     nd = _date.fromisoformat(s["next_date"])
@@ -290,7 +297,7 @@ def _sub_row_view(s: dict, today) -> dict:
     s["days_left"] = days
     s["period_cn"] = "一次性" if s["type"] == "once" else _PER_CN.get(s["period"], s["period"])
     s["money"] = pusher.money_of(s) if s.get("amount") else ""
-    s["cur_sym"] = subwatcher.currencies().get(s.get("currency") or "CNY", "¥")
+    s["cur_sym"] = "/" if _amount_is_zero(s.get("amount")) else subwatcher.currencies().get(s.get("currency") or "CNY", "¥")
     return s
 
 
@@ -343,7 +350,9 @@ async def sub_alerts(request: Request, page: int = 1, msg: str = ""):
     pages = max((total + per - 1) // per, 1)
     page = max(1, min(int(page), pages))
     rows = [dict(x) for x in conn.execute(
-        "SELECT * FROM alerts ORDER BY id DESC LIMIT ? OFFSET ?",
+        "SELECT a.*, s.custom_days AS sub_custom_days FROM alerts a"
+        " LEFT JOIN subs s ON s.id=a.sub_id"
+        " ORDER BY a.id DESC LIMIT ? OFFSET ?",
         (per, (page - 1) * per)).fetchall()]
     for a in rows:
         a["money"] = pusher.money_of(a)
@@ -431,9 +440,11 @@ async def sub_add(request: Request, title: str = Form(""), category: str = Form(
         return RedirectResponse(f"/subscribe?msg=bad_{err}", status_code=303)
     logo_bytes, logo_ext = b"", ""
     if logo is not None and logo.filename:
-        logo_bytes = await logo.read(config.LOGO_MAX_BYTES + 1)  # 限量读取，超大文件不吞内存
-        logo_ext = _logo_ext(logo_bytes)
-        if not logo_ext or len(logo_bytes) > config.LOGO_MAX_BYTES:
+        raw = await logo.read(config.LOGO_MAX_BYTES + 1)  # 限量读取，超大文件不吞内存
+        if len(raw) > config.LOGO_MAX_BYTES:
+            return RedirectResponse("/subscribe?msg=bad_logo", status_code=303)
+        logo_ext, logo_bytes = _logo_prepare(raw)
+        if not logo_ext:
             return RedirectResponse("/subscribe?msg=bad_logo", status_code=303)
     conn = db.db()
     cur = conn.execute(
@@ -555,14 +566,99 @@ async def sub_delete(request: Request, sub_id: int, logo_only: str = Form("")):
 
 
 def _logo_ext(data: bytes) -> str:
-    """图片魔数 → 扩展名；不识别返回空串。"""
+    """图片魔数 → 扩展名；不识别返回空串。SVG 无魔数，按 XML 文本头判定。"""
     if data[:8] == b"\x89PNG\r\n\x1a\n":
         return "png"
     if data[:3] == b"\xff\xd8\xff":
         return "jpg"
     if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
         return "webp"
+    if _svg_root_ok(data):
+        return "svg"
     return ""
+
+
+def _svg_root_ok(data: bytes) -> bool:
+    """跳 BOM/空白/XML 声明/注释/DOCTYPE 后必须以 <svg 开头（大小写敏感=XML 规范）。
+    10-10 审查修复：注释闭合 --> 是 3 字节（原 +2 off-by-one 残留 '>' 误杀带生成器注释的
+    合法 SVG）；<!DOCTYPE …>（Illustrator/Inkscape 导出常见）按 '>' 终结而非找 '-->'。"""
+    s = data.lstrip(b"\xef\xbb\xbf \t\r\n")
+    while True:
+        if s[:2] == b"<?":                      # 处理指令 <?xml …?> / <?xml-stylesheet …?>
+            close = s.find(b"?>")
+            if close < 0:
+                return False
+            s = s[close + 2:]
+        elif s[:4] == b"<!--":                   # 注释：闭合 --> 共 3 字节
+            close = s.find(b"-->")
+            if close < 0:
+                return False
+            s = s[close + 3:]
+        elif s[:2] == b"<!":                     # <!DOCTYPE …>：> 终结
+            close = s.find(b">")
+            if close < 0:
+                return False
+            s = s[close + 1:]
+        else:
+            break
+        s = s.lstrip(b" \t\r\n")
+    return s.startswith(b"<svg")
+
+
+_SVG_DROP_PATTERNS = [
+    re.compile(rb"<(?:[\w.-]+:)?script\b.*?(?:</(?:[\w.-]+:)?script>|$)", re.S | re.I),   # 含命名空间前缀 <p:script>
+    re.compile(rb"<(?:[\w.-]+:)?foreignObject\b.*?(?:</(?:[\w.-]+:)?foreignObject>|$)", re.S | re.I),
+    re.compile(rb"<!DOCTYPE[^>]*>", re.I),                          # 外部 DTD 引用
+    re.compile(rb"<\?xml-stylesheet.*?\?>", re.S | re.I),           # PI 引外部样式（ET 不报，须正则剥）
+    re.compile(rb"<!\[CDATA\[.*?\]\]>", re.S),
+    re.compile(rb"\son\w+\s*=\s*(\"[^\"]*\"|'[^']*'|[^\s>]+)", re.I),  # 事件属性
+    re.compile(rb"(\s(?:xlink:)?href\s*=\s*)(['\"])\s*(?:javascript|data|vbscript):[^'\"]*\2", re.I | re.S),
+]
+
+
+def _svg_sanitize(data: bytes) -> bytes | None:
+    """SVG 入库前净化：正则剥离 script/foreignObject/CDATA/DOCTYPE/xml-stylesheet/on*/危险
+    scheme href，随后**必须过 XML 解析器终审**（10-10 审查修复：实体编码 &#106;avascript:、
+    命名空间前缀标签、未闭合残缺身，正则黑名单看不住，解析树白名单才看得住）。
+    任何一环不过=整图拒绝（返回 None=bad_logo）。"""
+    import xml.etree.ElementTree as ET
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    out = data
+    for pat in _SVG_DROP_PATTERNS:
+        out = pat.sub(b"", out)
+    probe = out.lower()
+    if b"<script" in probe or b"javascript:" in probe or b"vbscript:" in probe:
+        return None
+    try:
+        root = ET.fromstring(out)        # 净化后必须良构（吞残缺身/坏 CDATA 在此被拒）
+    except ET.ParseError:
+        return None
+    for el in root.iter():
+        tag = el.tag.rsplit("}", 1)[-1].lower() if isinstance(el.tag, str) else ""
+        if tag in ("script", "foreignobject", "iframe"):
+            return None
+        for k, v in el.attrib.items():
+            kl = k.rsplit("}", 1)[-1].lower()
+            vv = (v or "").strip().lower()   # ET 已解实体：&#106;avascript: 到这里是明文
+            if kl.startswith("on") or vv.startswith(("javascript:", "data:", "vbscript:")):
+                return None
+    return out
+
+
+def _logo_prepare(data: bytes) -> tuple[str, bytes]:
+    """魔数判型 + SVG 净化。非法返回 ('', b'')；合法返回 (ext, 落库字节)。"""
+    ext = _logo_ext(data)
+    if not ext:
+        return "", b""
+    if ext == "svg":
+        clean = _svg_sanitize(data)
+        if clean is None:
+            return "", b""
+        return "svg", clean
+    return ext, data
 
 
 @app.post("/subscribe/{sub_id}/logo")
@@ -574,13 +670,15 @@ async def sub_logo(request: Request, sub_id: int, file: UploadFile = File(...)):
     if row is None:
         return RedirectResponse("/subscribe", status_code=303)
     data = await file.read(config.LOGO_MAX_BYTES + 1)  # 限量读取
-    ext = _logo_ext(data)
-    if not ext or len(data) > config.LOGO_MAX_BYTES:
+    if len(data) > config.LOGO_MAX_BYTES:
+        return RedirectResponse("/subscribe?msg=bad_logo", status_code=303)
+    ext, clean = _logo_prepare(data)
+    if not ext:
         return RedirectResponse("/subscribe?msg=bad_logo", status_code=303)
     old = db.db().execute("SELECT logo_ext FROM subs WHERE id=?", (sub_id,)).fetchone()
     if old and old["logo_ext"] and old["logo_ext"] != ext:
         _logo_path(sub_id, old["logo_ext"]).unlink(missing_ok=True)
-    _logo_path(sub_id, ext).write_bytes(data)
+    _logo_path(sub_id, ext).write_bytes(clean)
     db.db().execute("UPDATE subs SET has_logo=1,logo_ext=? WHERE id=?", (ext, sub_id))
     db.db().commit()
     return RedirectResponse("/subscribe?msg=logo_ok", status_code=303)
@@ -598,7 +696,8 @@ async def sub_logo_get(request: Request, sub_id: int):
     p = _logo_path(sub_id, row["logo_ext"])
     if not p.exists():
         return RedirectResponse("/subscribe", status_code=303)
-    media = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp"}[row["logo_ext"]]
+    media = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp",
+             "svg": "image/svg+xml"}[row["logo_ext"]]
     return FileResponse(p, media_type=media,
                         headers={"Cache-Control": "no-store",
                                  "Content-Security-Policy": "default-src 'none'",
@@ -635,11 +734,6 @@ async def sub_settings(request: Request, msg: str = ""):
     chans = subwatcher.channels()
     fq = subwatcher.freq()
     cfg = mailer.get_cfg(masked=True)
-    conn = db.db()
-    fs = conn.execute("SELECT * FROM webhooks WHERE fmt='feishu_bot'"
-                      " AND name LIKE '订阅%' ORDER BY id LIMIT 1").fetchall()
-    ml = conn.execute("SELECT * FROM webhooks WHERE fmt='mail'"
-                      " AND name LIKE '订阅%' ORDER BY id LIMIT 1").fetchall()
     fcm = config.feishu_cfg(masked=True)
     masked = fcm["chat_id"] or "未配置"
     aid_masked = fcm["app_id"] or "未配置"
@@ -648,14 +742,13 @@ async def sub_settings(request: Request, msg: str = ""):
     cat_counts = {row["category"]: row["c"] for row in db.db().execute(
         "SELECT category, COUNT(*) c FROM subs GROUP BY category")}
     return templates.TemplateResponse(request, "sub_settings.html", _ctx(
-        request, msg=msg, chans=chans, smtp=cfg, fs=fs, ml=ml,
+        request, msg=msg, chans=chans, smtp=cfg,
         cats=_cats(), cat_counts=cat_counts, curs=subwatcher.cur_table(),
         fq_days=fq["days"], fq_hour=int(fq["hour"]),
         freq_days_opts=_FREQ_DAYS, freq_hours_opts=_FREQ_HOURS,
         smtp_ready=mailer.smtp_configured(), feishu_chat_masked=masked,
         feishu_app_id_masked=aid_masked, feishu_ready=feishu_ready,
-        feishu=fcm,
-        smtp_timeout=config.SMTP_TIMEOUT_S))
+        feishu=fcm))
 
 
 @app.post("/subscribe/settings/frequency")
@@ -751,19 +844,32 @@ async def sub_feishu_save(request: Request, app_id: str = Form(""), app_secret: 
     r = await auth_required(request)
     if r:
         return r
+    # api_base 是 Secret POST 的目标主机：只收空（=用默认/已存值）或 https:// 前缀（防误填/
+    # 会话被窃时 Secret 明文流向 http 或伪 URL；10-10 审查项）
+    ab = api_base.strip()
+    if ab and (not ab.startswith("https://") or len(ab) > 200 or " " in ab):
+        return RedirectResponse("/subscribe/settings?msg=bad_api_base", status_code=303)
     # 全部留空提交也合法（=什么都不改，同 SMTP keep_pw 语义）
     config.feishu_save_cfg({"app_id": app_id, "app_secret": app_secret,
-                            "chat_id": chat_id, "api_base": api_base})
+                            "chat_id": chat_id, "api_base": ab})
     return RedirectResponse("/subscribe/settings?msg=feishu_saved", status_code=303)
 
 
 @app.post("/subscribe/settings/channels")
-async def sub_channels(request: Request, feishu: str = Form("0"),
-                       mail: str = Form("0")):
+async def sub_channels(request: Request, feishu: str | None = Form(None),
+                       mail: str | None = Form(None)):
     r = await auth_required(request)
     if r:
         return r
-    subwatcher.set_channels({"feishu": feishu == "1", "mail": mail == "1"})
+    # 只更新本次表单里实际出现的渠道字段（缺失=该卡没管这个渠道，不动已存值）——
+    # 修正双标签页快照互踩竞态（10-10 审查项）；模板 hidden 保值字段照常兼容
+    upd = {}
+    if feishu is not None:
+        upd["feishu"] = feishu == "1"
+    if mail is not None:
+        upd["mail"] = mail == "1"
+    if upd:
+        subwatcher.set_channels(upd)
     return RedirectResponse("/subscribe/settings?msg=chans", status_code=303)
 
 

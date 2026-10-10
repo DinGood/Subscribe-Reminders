@@ -2,12 +2,13 @@
 {% block body %}
 <style>
 /* 订阅卡片列表：标题卡与每条订阅各一张卡；六列用同一 grid 模板对齐 */
-.subgrid{display:grid;grid-template-columns:160px minmax(120px,1fr) 96px 190px 80px 56px 76px;align-items:center}
+.subgrid{display:grid;grid-template-columns:160px minmax(120px,1fr) 96px 202px 80px 56px 64px;align-items:center}
 .subgrid .sgdiv{border-right:1px solid var(--bd)}
 .subgrid>div{text-align:center;min-width:0;padding:2px 10px}
-.subgrid .editbtn{background:none;border:0;box-shadow:none;color:var(--acc);font-weight:600;font-size:15px;padding:0;cursor:pointer}
-.subgrid .editbtn::before{content:"▸ "}
-.subgrid .editbtn.open::before{content:"▾ "}
+.subgrid .editbtn{background:var(--grad);border:0;box-shadow:none;color:#fff;font-weight:600;
+  font-size:12px;padding:4px 14px;border-radius:999px;cursor:pointer;white-space:nowrap}
+.subgrid .editbtn:hover{filter:brightness(1.06)}
+.subgrid .editbtn.open{filter:brightness(.92)}
 .subgrid .editbox{grid-column:1/-1;border-top:1px solid var(--bd);margin-top:6px;padding:10px;
 text-align:left;display:none;flex-direction:column;gap:6px}
 .subgrid .editbox.open{display:flex}
@@ -17,7 +18,9 @@ padding:7px 12px;border-radius:9px;margin:6px 0;font-size:12.5px}
 .editbox input.merrfield,.editbox input.merrfield:focus{border-color:#e5484d;box-shadow:0 0 0 3px rgba(229,72,77,.12)}
 /* 校验失败回跳的服务端兜底：markopen 卡免 JS 也展开（JS 另负责聚焦） */
 .subgrid .editbox.markopen{display:flex}
-.subgrid .sublogo-cell,.subgrid .subdate-cell{display:flex;justify-content:center}
+.subgrid .sublogo-cell{display:flex;justify-content:center}
+.subgrid .subdate-cell{display:flex;justify-content:center}
+.subgrid .subdate-cell>span{flex:1;justify-content:space-between}
 /* 编辑区：标题行 + 两列栅格（与添加弹窗 mbgrid 同族） */
 .subgrid .edhead{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--mut);padding-bottom:8px;margin-bottom:10px;border-bottom:1px dashed var(--bd)}
 .subgrid .edhead b{color:var(--fg);font-size:14px}
@@ -32,6 +35,11 @@ padding:7px 12px;border-radius:9px;margin:6px 0;font-size:12.5px}
    故文字+星号必须包进 .lbt 同一 flex 项才能同行 */
 .lbt{display:inline}
 .req{color:var(--red);font-weight:700;margin-left:2px}
+/* 金额格标签行：与控件行同构镜像——金额* 段 flex:1，币种* 段宽=下拉宽(110px)+gap6px、
+   文字左对齐 ⇒ 币种* 左缘精确压在其下拉左缘正上方；新建弹窗与编辑区共用 */
+.amtcaps{display:flex;align-items:baseline;width:100%}
+.amtcaps .lbt{flex:1;min-width:0}
+.amtcaps .curcap{flex:0 0 110px;margin-left:6px;font-size:12.5px;color:var(--mut);font-weight:500;white-space:nowrap}
 /* 名称行外链：SVG 外部链接图标，悬停点亮 */
 .titlelink{display:inline-flex;align-items:center;gap:6px;font-size:17px;color:inherit;text-decoration:none;min-width:0}
 .titlelink b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -75,7 +83,7 @@ padding:7px 16px;font-size:13px;border-radius:999px}
 {% elif msg == 'deleted' %}<div class="flash">订阅已删除（提醒记录一并清除）</div>
 {% elif msg == 'logo_ok' %}<div class="flash">LOGO 已上传</div>
 {% elif msg == 'logo_removed' %}<div class="flash">LOGO 已移除</div>
-{% elif msg == 'bad_logo' %}<div class="flash" style="background:#fdeeee;color:#c93a3f;border-color:#f5c3c5;border-left-color:#e5484d">LOGO 仅限 png/jpg/webp 且 ≤200KB</div>
+{% elif msg == 'bad_logo' %}<div class="flash" style="background:#fdeeee;color:#c93a3f;border-color:#f5c3c5;border-left-color:#e5484d">LOGO 仅限 png/jpg/webp/svg 且 ≤200KB</div>
 {% elif msg == 'bad_title' %}<div class="flash" style="background:#fdeeee;color:#c93a3f;border-color:#f5c3c5;border-left-color:#e5484d">订阅名称不能为空</div>
 {% elif msg == 'bad_date' %}<div class="flash" style="background:#fdeeee;color:#c93a3f;border-color:#f5c3c5;border-left-color:#e5484d">日期格式应为 YYYY-MM-DD</div>
 {% elif msg == 'bad_amount' %}<div class="flash" style="background:#fdeeee;color:#c93a3f;border-color:#f5c3c5;border-left-color:#e5484d">金额不能为空</div>
@@ -102,8 +110,8 @@ padding:7px 16px;font-size:13px;border-radius:999px}
         <label><span class="lbt">续费周期<span class="req">*</span></span>
           <span class="row" style="gap:6px;flex-wrap:nowrap">
             <select name="period" style="flex:1">
-              <option value="yearly">年付</option><option value="quarterly">季付</option>
-              <option value="monthly" selected>月付</option><option value="weekly">周付</option>
+              <option value="yearly" selected>年付</option><option value="quarterly">季付</option>
+              <option value="monthly">月付</option><option value="weekly">周付</option>
               <option value="custom">每 N 天</option>
             </select>
             <input name="custom_days" value="30" style="width:64px;opacity:.45" inputmode="numeric" disabled title="仅周期=每 N 天时生效">
@@ -112,16 +120,16 @@ padding:7px 16px;font-size:13px;border-radius:999px}
         <label><span class="lbt">分类<span class="req">*</span></span>
           <select name="category">{% for c in cats %}<option>{{ c }}</option>{% endfor %}</select>
         </label>
-        <label><span class="lbt">金额<span class="req">*</span></span>
-          <span class="row" style="gap:6px;flex-wrap:nowrap">
-            <input name="amount" placeholder="如 42.68" maxlength="60" style="flex:1" required>
-            <select name="currency" style="width:110px">{% for k, v in curs.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+        <label><span class="amtcaps"><span class="lbt">金额<span class="req">*</span></span><span class="curcap">币种<span class="req">*</span></span></span>
+          <span class="row" style="gap:6px;flex-wrap:nowrap;align-items:center">
+            <input name="amount" placeholder="如 42.68" maxlength="60" style="flex:1;min-width:0" title="续费金额；填 0=免费（列表币种列显 /）" required>
+            <select name="currency" style="width:110px" title="默认美元">{% for k, v in curs.items() %}<option value="{{ k }}" {{ 'selected' if k == 'USD' }}>{{ v }}</option>{% endfor %}</select>
           </span>
         </label>
         <label style="grid-column:1/-1">续费网站（可选）<input name="url" placeholder="https://… 填写后单击订阅名称可新窗口打开续费页" maxlength="300"></label>
         <label style="grid-column:1/-1">备注（可选）<input name="note" placeholder="悬停订阅名称时显示" maxlength="200"></label>
-        <label style="grid-column:1/-1">LOGO（可选，png/jpg/webp ≤200KB，仅列表显示不进推送）
-          <input type="file" name="logo" accept="image/png,image/jpeg,image/webp">
+        <label style="grid-column:1/-1">LOGO（可选，png/jpg/webp/svg ≤200KB，仅列表显示不进推送）
+          <input type="file" name="logo" accept="image/png,image/jpeg,image/webp,image/svg+xml">
         </label>
       </div>
       <div class="row mbfoot">
@@ -208,7 +216,7 @@ padding:7px 16px;font-size:13px;border-radius:999px}
   const hasSid = sid && !isNaN(Number(sid)) && Number(sid)>0;
   if(['bad_title','bad_date','bad_url','bad_amount','bad_logo'].includes(msg) && !hasSid){
     open();
-    if(msg==='bad_logo'){merr.textContent='LOGO 仅限 png/jpg/webp 且 ≤200KB'; merr.classList.add('on');}
+    if(msg==='bad_logo'){merr.textContent='LOGO 仅限 png/jpg/webp/svg 且 ≤200KB'; merr.classList.add('on');}
     else showInModal(msg);
   }
   // 编辑区校验失败（带 sid）：模板已给该卡 editbox 挂 markopen；这里只展开并聚焦出错字段，
@@ -237,7 +245,7 @@ padding:7px 16px;font-size:13px;border-radius:999px}
 {# 标题卡 #}
 <div class="card" style="padding:10px 18px">
   <div class="subgrid" style="font-weight:600;color:var(--mut)">
-    <div class="sgdiv">订阅logo</div><div class="sgdiv">订阅名称</div><div class="sgdiv">周期</div><div class="sgdiv">下次到期日期</div><div class="sgdiv">金额</div><div class="sgdiv">币种</div><div>操作</div>
+    <div class="sgdiv">订阅 LOGO</div><div class="sgdiv">订阅名称</div><div class="sgdiv">周期</div><div class="sgdiv">下次到期日</div><div class="sgdiv">金额</div><div class="sgdiv">币种</div><div>操作</div>
   </div>
 </div>
 
@@ -255,7 +263,7 @@ padding:7px 16px;font-size:13px;border-radius:999px}
       <span class="badge mut" style="padding:2px 10px;font-size:13px">{{ s['category'] }}</span>
       {% if s['status'] == 'overdue' %}<span class="badge dead" style="font-size:13px">逾期</span>{% endif %}
     </span></div>
-    <div class="sgdiv"><b style="font-size:17px">{{ s['period_cn'] }}</b>{% if s['period'] == 'custom' %}<span class="mut">（每 {{ s['custom_days'] }} 天）</span>{% endif %}</div>
+    <div class="sgdiv">{% if s['period'] == 'custom' %}<b style="font-size:17px">每 {{ s['custom_days'] }} 天</b>{% else %}<b style="font-size:17px">{{ s['period_cn'] }}</b>{% endif %}</div>
     <div class="sgdiv subdate-cell"><span class="row" style="gap:6px;flex-wrap:nowrap"><b style="font-size:17px">{{ s['next_date'] }}</b>
       {% if s['days_left'] < 0 %}<span class="badge dead" style="font-size:13px">已过 {{ -s['days_left'] }} 天</span>
       {% elif s['days_left'] == 0 %}<span class="badge ok" style="font-size:13px">今天到期</span>
@@ -270,14 +278,14 @@ padding:7px 16px;font-size:13px;border-radius:999px}
     <div class="editbox{% if ed_sid == s['id'] %} markopen{% endif %}">
       <div class="edhead">编辑 · <b>{{ s['title'] }}</b>
         <span class="hdt">
-          <label for="sublogo{{ s['id'] }}" class="kw" style="cursor:pointer;font-size:11px;margin:0" title="上传 LOGO（png/jpg/webp ≤200KB）">+LOGO</label>
+          <label for="sublogo{{ s['id'] }}" class="kw" style="cursor:pointer;font-size:11px;margin:0" title="上传 LOGO（png/jpg/webp/svg ≤200KB）">+LOGO</label>
           <form method="post" action="/subscribe/{{ s['id'] }}/logo" enctype="multipart/form-data" style="display:inline">
             <input type="hidden" name="csrf" value="{{ csrf }}">
-            <input type="file" id="sublogo{{ s['id'] }}" name="file" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="this.form.submit()">
+            <input type="file" id="sublogo{{ s['id'] }}" name="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" style="display:none" onchange="this.form.submit()">
           </form>
           {% if s['has_logo'] %}
-          <form method="post" action="/subscribe/{{ s['id'] }}/delete" style="display:inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="logo_only" value="1"><button class="ghost tiny" style="padding:3px 10px;font-size:11px">撤LOGO</button></form>
-          {% endif %}
+            <form method="post" action="/subscribe/{{ s['id'] }}/delete" style="display:inline" data-confirm="删除「{{ s['title'] }}」的 LOGO 图片？提醒记录保留，可重新上传。" onsubmit="return __cf(this)"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="logo_only" value="1"><button class="ghost tiny" style="padding:3px 10px;font-size:11px">删除LOGO</button></form>
+            {% endif %}
           <form method="post" action="/subscribe/{{ s['id'] }}/delete" style="display:inline"
             data-confirm="确认删除「{{ s['title'] }}」？其提醒记录与 LOGO 一并删除，不可恢复。" onsubmit="return __cf(this)">
             <input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger tiny">删除此订阅</button>
@@ -298,16 +306,16 @@ padding:7px 16px;font-size:13px;border-radius:999px}
           <label><span class="lbt">续费周期<span class="req">*</span></span>
             <span class="row" style="gap:6px;flex-wrap:nowrap">
               <select form="upd{{ s['id'] }}" name="period" style="flex:1" onchange="this.form.elements.custom_days.disabled=(this.value!=='custom');this.form.elements.custom_days.style.opacity=this.value==='custom'?'1':'.45'">
-                {% for k, v in {'yearly':'年付','quarterly':'季付','monthly':'月付','weekly':'周付','custom':'每N天'}.items() %}
+                {% for k, v in {'yearly':'年付','quarterly':'季付','monthly':'月付','weekly':'周付','custom':'每 N 天'}.items() %}
                 <option value="{{ k }}" {{ 'selected' if k == s['period'] }}>{{ v }}</option>{% endfor %}
               </select>
               <input form="upd{{ s['id'] }}" name="custom_days" value="{{ s['custom_days'] or 30 }}" style="width:70px{% if s['period'] != 'custom' %};opacity:.45{% endif %}" inputmode="numeric" title="仅周期=每 N 天时生效：每隔几天算一期" {{ 'disabled' if s['period'] != 'custom' }}>
             </span>
           </label>
-          <label><span class="lbt">金额<span class="req">*</span></span>
+          <label><span class="amtcaps"><span class="lbt">金额<span class="req">*</span></span><span class="curcap">币种<span class="req">*</span></span></span>
             <span class="row" style="gap:6px;flex-wrap:nowrap">
-              <input form="upd{{ s['id'] }}" name="amount" value="{{ s['amount'] }}" placeholder="如 42.68" maxlength="60" style="flex:1" title="续费金额" required>
-              <select form="upd{{ s['id'] }}" name="currency" style="width:112px" title="金额货币">
+              <input form="upd{{ s['id'] }}" name="amount" value="{{ s['amount'] }}" placeholder="如 42.68" maxlength="60" style="flex:1" title="续费金额；填 0=免费（列表币种列显 /）" required>
+              <select form="upd{{ s['id'] }}" name="currency" style="width:110px" title="金额货币">
                 {% for k, v in curs.items() %}<option value="{{ k }}" {{ 'selected' if k == s['currency'] }}>{{ v }}</option>{% endfor %}
               </select>
             </span>
@@ -318,7 +326,7 @@ padding:7px 16px;font-size:13px;border-radius:999px}
             {% if s['type'] == 'periodic' %}
             <form method="post" action="/subscribe/{{ s['id'] }}/renew" style="display:inline">
               <input type="hidden" name="csrf" value="{{ csrf }}">
-              <button class="warn tiny" title="到期日按本订阅周期（{{ s['period_cn'] }}）直接推进一期，提醒重新排">⟳ 一键续期</button>
+              <button class="warn tiny" title="到期日按本订阅周期（{% if s['period'] == 'custom' %}每 {{ s['custom_days'] }} 天{% else %}{{ s['period_cn'] }}{% endif %}）直接推进一期，提醒重新排">⟳ 一键续期</button>
             </form>
             {% endif %}
             <button class="tiny" form="upd{{ s['id'] }}">保存</button>

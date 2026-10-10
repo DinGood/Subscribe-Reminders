@@ -1,6 +1,24 @@
 {% extends "base.html" %}
 {% block body %}
+<style>
+/* 卡头行：徽标紧跟标题（左），开关+测试右贴齐；提醒渠道独立卡并入各归属卡（10-10 用户定） */
+.cdhead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px}
+.cdhead>.badge{margin-left:2px}
+.cdtools{margin-left:auto;display:inline-flex;align-items:center;gap:10px}
+.cdtools form.inl{display:inline-flex;align-items:center;gap:6px;margin:0}
+.cdtools .swlab{font-size:12.5px;color:var(--mut);font-weight:500;white-space:nowrap}
+.cdtools .badge{padding:2px 8px}
+/* 设置卡字段栅格：与订阅编辑区 .edgrid 同族——两列、小灰标签上置（10-09 用户定：文本框外带字段名） */
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px}
+.fgrid label{display:flex;flex-direction:column;gap:4px}
+.fgrid .fcap{font-size:12.5px;color:var(--mut);font-weight:500}
+.fgrid input,.fgrid select{max-width:100%}
+.fgrid .fbtn{display:flex;align-items:flex-end;justify-content:flex-end;grid-column:2}
+.fgrid .fbtn button{align-self:end}
+@media (max-width:680px){.fgrid{grid-template-columns:1fr}.fgrid .fbtn{grid-column:1}}
+</style>
 {% set msgs = {'chans':'渠道设置已保存','freq_saved':'提醒频率已保存','bad_freq':'频率档位无效，请从下拉框中选择',
+              'bad_api_base':'API 地址需以 https:// 开头（留空=用默认），已拒绝保存',
               'smtp_saved':'SMTP 配置已保存','bad_smtp':'SMTP 校验未通过：主机/端口/发件账号必填，收件邮箱需含 @',
               'test_feishu:ok':'飞书测试已发送',
               'test_mail:ok':'测试邮件已发送','test_mail:fail':'邮件测试失败（SMTP 未配置或发送被拒）','test_mail:error':'邮件测试异常',
@@ -80,84 +98,78 @@
 </div>
 
 <div class="card">
-  <b style="font-size:15px">提醒渠道</b>
-  <div class="mut" style="margin:2px 0 10px">停用渠道在提醒生成时不入队，不回补。</div>
-  <form method="post" action="/subscribe/settings/channels">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <table>
-      <tr><th>渠道</th><th class="vdiv">说明</th><th style="width:70px;text-align:center">启用</th></tr>
-      <tr>
-        <td><b>飞书</b></td>
-        <td class="vdiv mut">蓝头卡片【订阅】→ 会话 {{ feishu_chat_masked }}
-          {% if feishu_ready %}<span class="badge ok" style="margin-left:6px;padding:2px 8px" title="App ID {{ feishu_app_id_masked }}｜App Secret 已配置（不回显）｜Chat ID {{ feishu_chat_masked }}">已配置</span>
-          {% else %}<span class="badge pend" style="margin-left:6px;padding:2px 8px" title="App ID / App Secret / Chat ID 三项任一未填——写入站点 .env 并重启后生效">未配置完整</span>{% endif %}
-        </td>
-        <td style="text-align:center"><label class="switch"><input type="checkbox" name="feishu" value="1" {{ 'checked' if chans.feishu }} onchange="this.form.submit()"><span class="slider"></span></label></td>
-      </tr>
-      <tr>
-        <td><b>邮件</b></td>
-        <td class="vdiv mut">纯文本 → {{ smtp.get('user','') or 'SMTP 未配置' }}{% if smtp.get('to') %} → {{ smtp['to'] }}{% endif %}
-          {% if smtp_ready %}<span class="badge ok" style="margin-left:6px;padding:2px 8px" title="主机 {{ smtp.get('host','') }}:{{ smtp.get('port','') }}｜发件 {{ smtp.get('user','') }}｜授权码已配置（不回显）｜收件 {{ smtp.get('to','') }}">已配置</span>
-          {% else %}<span class="badge pend" style="margin-left:6px;padding:2px 8px" title="主机/端口/发件账号/授权码/收件邮箱任一未填——在下方 SMTP 卡填写保存即生效">未配置完整</span>{% endif %}
-        </td>
-        <td style="text-align:center"><label class="switch"><input type="checkbox" name="mail" value="1" {{ 'checked' if chans.mail }} onchange="this.form.submit()"><span class="slider"></span></label></td>
-      </tr>
-    </table>
-  </form>
-  <div class="row" style="margin-top:10px">
-    <form method="post" action="/subscribe/settings/test/feishu"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost tiny">发飞书测试</button></form>
-    <form method="post" action="/subscribe/settings/test/mail"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost tiny">发邮件测试</button></form>
+  <div class="cdhead"><b style="font-size:15px">飞书机器人接入</b>
+    {% if feishu_ready %}<span class="badge ok" title="App ID {{ feishu_app_id_masked }}｜App Secret 已配置（不回显）｜Chat ID {{ feishu_chat_masked }}">已配置</span>
+    {% else %}<span class="badge pend" title="App ID / App Secret / Chat ID 三项任一未填">未配置完整</span>{% endif %}
+    <span class="cdtools">
+      <form method="post" action="/subscribe/settings/channels" class="inl"><input type="hidden" name="csrf" value="{{ csrf }}"><span class="swlab">通知开关</span><label class="switch" title="通知总开关：停用后飞书提醒生成时不入队、不回补"><input type="checkbox" name="feishu" value="1" {{ 'checked' if chans.feishu }} onchange="this.form.submit()"><span class="slider"></span></label></form>
+      <form method="post" action="/subscribe/settings/test/feishu" class="inl"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="tiny">发送测试</button></form>
+    </span>
   </div>
-</div>
-
-<div class="card">
-  <b style="font-size:15px">飞书机器人接入</b>
   <div class="mut" style="margin:2px 0 12px">
-    配置存本机数据库（保存即生效，无需重启）；输入框留空=保持已存值，App ID / Secret 永不回显明文，仅显示脱敏摘要。当前：
-    App ID <b style="color:var(--fg)">{{ feishu_app_id_masked }}</b> · 会话 <b style="color:var(--fg)">{{ feishu_chat_masked }}</b>
-    {% if feishu_ready %}<span class="badge ok">已配置</span>{% else %}<span class="badge pend">未配置完整</span>{% endif %}
+    配置存本机数据库（保存即生效，无需重启）；输入框留空=保持已存值，灰色脱敏文字为当前值示意。
   </div>
   <form method="post" action="/subscribe/settings/feishu">
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    <div class="row">
-      <input name="app_id" type="password" placeholder="{{ 'App ID（留空=不修改）' if feishu.app_id else 'App ID（开放平台 cli_ 开头）' }}" style="flex:1;min-width:180px" autocomplete="off">
-      <input name="chat_id" type="password" placeholder="{{ '会话 Chat ID（留空=不修改）' if feishu.chat_id else 'Chat ID（oc_ 开头的目标群）' }}" style="flex:1;min-width:180px" autocomplete="off">
+    <div class="fgrid">
+      <label><span class="fcap">App ID</span>
+        <input name="app_id" type="password" placeholder="{{ ('已存 ' + feishu.app_id + ' · 留空=不修改，填新值即替换') if feishu.app_id else '开放平台 cli_ 开头' }}" style="flex:1;min-width:180px" autocomplete="off">
+      </label>
+      <label><span class="fcap">App Secret</span>
+        <input name="app_secret" type="password" placeholder="{{ '已存 ' + feishu.app_secret + ' · 留空=不修改，填新值即替换' if feishu.app_secret else '应用密钥' }}" style="flex:1;min-width:180px" autocomplete="new-password">
+      </label>
+      <label><span class="fcap">会话 Chat ID</span>
+        <input name="chat_id" type="password" placeholder="{{ ('已存 ' + feishu.chat_id + ' · 留空=不修改，填新值即替换') if feishu.chat_id else 'oc_ 开头的目标群' }}" style="flex:1;min-width:180px" autocomplete="off">
+      </label>
+      <label><span class="fcap">API 地址</span>
+        <input name="api_base" placeholder="默认 https://open.feishu.cn，可留空" value="{{ feishu.api_base }}" style="flex:1;min-width:200px">
+      </label>
+      <div class="fbtn"><button>保存飞书配置</button></div>
     </div>
-    <div class="row" style="margin-top:8px">
-      <input name="app_secret" type="password" placeholder="{{ 'App Secret（留空=不修改）' if feishu.app_secret else 'App Secret' }}" style="flex:1;min-width:180px" autocomplete="new-password">
-      <input name="api_base" placeholder="API 地址（默认 https://open.feishu.cn，可留空）" value="{{ feishu.api_base }}" style="flex:1;min-width:200px">
-      <button>保存飞书配置</button>
-    </div>
-    {% if feishu.app_id or feishu.app_secret or feishu.chat_id %}<div class="row" style="margin-top:8px"><span class="badge mut">已存凭据不回显；如需替换请填入新值直接保存</span></div>{% endif %}
   </form>
 </div>
 
 <div class="card">
-  <b style="font-size:15px">SMTP 邮件服务</b>
+  <div class="cdhead"><b style="font-size:15px">SMTP 邮件服务</b>
+    {% if smtp_ready %}<span class="badge ok" title="主机 {{ smtp.get('host','') }}:{{ smtp.get('port','') }}｜发件 {{ smtp.get('user','') }}｜授权码已配置（不回显）｜收件 {{ smtp.get('to','') }}">已配置</span>
+    {% else %}<span class="badge pend" title="主机/端口/发件账号/授权码/收件邮箱任一未填">未配置完整</span>{% endif %}
+    <span class="cdtools">
+      <form method="post" action="/subscribe/settings/channels" class="inl"><input type="hidden" name="csrf" value="{{ csrf }}"><span class="swlab">通知开关</span><label class="switch" title="通知总开关：停用后邮件提醒生成时不入队、不回补"><input type="checkbox" name="mail" value="1" {{ 'checked' if chans.mail }} onchange="this.form.submit()"><span class="slider"></span></label></form>
+      <form method="post" action="/subscribe/settings/test/mail" class="inl"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="tiny">发送测试</button></form>
+    </span>
+  </div>
   <div class="mut" style="margin:2px 0 12px">
-    配置存本站数据库（容器内=挂载卷），授权码保存后只回显 ****，不进日志；出站直连 SMTP 服务器。当前状态：
-    {% if smtp_ready %}<span class="badge ok">已配置</span>{% else %}<span class="badge pend">未配置完整</span>{% endif %}
+    配置存本站数据库（容器内=挂载卷）。
   </div>
   <form method="post" action="/subscribe/settings/smtp">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="hidden" name="keep_pw" value="keep">
-    <div class="row">
-      <input name="host" placeholder="SMTP 主机（如 smtp.qq.com）" value="{{ smtp.get('host','') }}" style="flex:1;min-width:200px" required>
-      <input name="port" placeholder="端口" value="{{ smtp.get('port','465') }}" style="width:90px" inputmode="numeric" required>
-      <select name="security" title="加密方式">
-        <option value="ssl" {{ 'selected' if smtp.get('security','ssl') == 'ssl' }}>SSL (465)</option>
-        <option value="starttls" {{ 'selected' if smtp.get('security') == 'starttls' }}>STARTTLS (587)</option>
-      </select>
-    </div>
-    <div class="row" style="margin-top:8px">
-      <input name="user" placeholder="发件邮箱账号" value="{{ smtp.get('user','') }}" style="flex:1;min-width:180px" autocomplete="off">
-      <input name="password" type="password" placeholder="{{ '授权码（留空=不修改）' if smtp.get('password') else '授权码/密码' }}" style="flex:1;min-width:180px" autocomplete="new-password">
-      {% if smtp.get('password') %}<span class="badge mut">已存 ****</span>{% endif %}
-    </div>
-    <div class="row" style="margin-top:8px">
-      <input name="to" placeholder="收件邮箱（提醒发到此地址）" value="{{ smtp.get('to','') }}" style="flex:1;min-width:200px" required>
-      <input name="from_name" placeholder="发件人显示名（可选）" value="{{ smtp.get('from_name','') }}" style="width:200px" maxlength="40">
-      <button>保存 SMTP</button>
+    <div class="fgrid">
+      <label><span class="fcap">SMTP 主机</span>
+        <input name="host" placeholder="如 smtp.qq.com" value="{{ smtp.get('host','') }}" style="flex:1;min-width:200px" required>
+      </label>
+      <label><span class="fcap">端口</span>
+        <input name="port" placeholder="465" value="{{ smtp.get('port','465') }}" style="flex:1;min-width:80px" inputmode="numeric" maxlength="5" required>
+      </label>
+      <label><span class="fcap">加密方式</span>
+        <select name="security" title="加密方式">
+          <option value="ssl" {{ 'selected' if smtp.get('security','ssl') == 'ssl' }}>SSL (465)</option>
+          <option value="starttls" {{ 'selected' if smtp.get('security') == 'starttls' }}>STARTTLS (587)</option>
+        </select>
+      </label>
+      <label><span class="fcap">发件邮箱账号</span>
+        <input name="user" placeholder="发件地址" value="{{ smtp.get('user','') }}" style="flex:1;min-width:180px" autocomplete="off">
+      </label>
+      <label><span class="fcap">授权码</span>
+        <input name="password" type="password" placeholder="{{ '已存 **** · 留空=不修改，填新值即替换' if smtp.get('password') else '授权码/密码' }}" style="flex:1;min-width:180px" autocomplete="new-password">
+      </label>
+      <label><span class="fcap">收件邮箱</span>
+        <input name="to" placeholder="提醒发到此地址" value="{{ smtp.get('to','') }}" style="flex:1;min-width:200px" required>
+      </label>
+      <label><span class="fcap">发件人显示名（可选）</span>
+        <input name="from_name" placeholder="如 订阅到期提醒" value="{{ smtp.get('from_name','') }}" style="flex:1;min-width:120px" maxlength="40">
+      </label>
+      <div class="fbtn"><button>保存SMTP设置</button></div>
     </div>
   </form>
 </div>
