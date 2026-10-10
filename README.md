@@ -61,3 +61,7 @@ docker compose up -d              # 起服务；docker compose logs -f 看运行
 ## 开发
 
 `tests/` 四套回归（鉴权流 / 调度离线断言 / 外链+必填+续期 E2E / SVG 净化），拉起服务后 `python tests/test_auth_flow.py` 等逐个跑即可。
+
+## 许可
+
+[MIT](LICENSE) — 随便用、改、再分发，保留版权声明即可；软件按「现状」提供，不承担任何担保责任。

@@ -2,6 +2,7 @@
 name = "sub-reminders"
 version = "1.0.5"
 description = "Subscription renewal reminder site: scheduler + feishu/mail push + admin panel"
+license = { file = "LICENSE" }
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",
