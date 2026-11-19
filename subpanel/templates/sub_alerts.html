@@ -14,6 +14,15 @@
   </span>
 {%- endmacro %}
 {% if msg.startswith('cleared:') %}<div class="flash">已清除 {{ msg.split(':')[-1] }} 条提醒记录</div>
+{% elif msg == 'pw_changed' %}<div class="flash">管理密码已修改</div>
+{% elif msg == 'bad_old' %}<div class="flash" style="background:#fdeeee;color:#c93a3f;border-color:#f5c3c5;border-left-color:#e5484d">当前密码不正确，密码未修改</div>
+{% elif msg == 'pw_mismatch' %}<div class="flash" style="background:#fdeeee;color:#c93a3f;border-color:#f5c3c5;border-left-color:#e5484d">两次输入的新密码不一致</div>
+{% elif msg == 'short' %}<div class="flash" style="background:#fdeeee;color:#c93a3f;border-color:#f5c3c5;border-left-color:#e5484d">新密码太短（至少 8 位）</div>
+{% elif msg == 'auth_on' %}<div class="flash">登录验证已开启：未登录访问将跳转登录页</div>
+{% elif msg == 'auth_off' %}<div class="flash">登录验证已关闭：本站可直接访问（管理密码仍保留，改密仍需验证当前密码）</div>
+{% elif msg == 'bad_csrf' %}<div class="flash" style="background:#fdeeee;color:#c93a3f;border-color:#f5c3c5;border-left-color:#e5484d">请求校验未通过（CSRF），请刷新页面后重试</div>
+{% elif msg == 'pw_locked' %}<div class="flash" style="background:#fdeeee;color:#c93a3f;border-color:#f5c3c5;border-left-color:#e5484d">密码尝试次数过多，已锁定 5 分钟</div>
+{% elif msg == 'auth_gate_off' %}<div class="flash" style="background:#fdeeee;color:#c93a3f;border-color:#f5c3c5;border-left-color:#e5484d">鉴权总闸（SUB_AUTH_ENABLED）已关，登录验证开关不生效</div>
 {% elif msg %}<div class="flash">{{ msg }}</div>{% endif %}
 
 <div class="card row" style="padding:10px 16px">

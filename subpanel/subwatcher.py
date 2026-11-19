@@ -172,18 +172,25 @@ def _scan_row(s: dict, now: int, today: date, g_leads: list[int],
             s["fired"] = (s["fired"] + "," if s.get("fired") else "") + missed_key
             conn.execute("UPDATE subs SET fired=? WHERE id=?", (s["fired"], s["id"]))
     conn.commit()
-    # 周期自动推进：到期日已过则滚到下一期（提醒状态跟随新周期）
+    # 周期自动推进：到期日已过则滚到下一期（提醒状态跟随新周期）。
+    # H1 修复（11-04 体检）：当天到期行必须等 lead=0 真正发过（fired 含 today:0）才跨过今天——
+    # 否则 10 点前的一次进页 rescan/容器重启会先把日期推走，当天「必提」被静默吞且无 skipped 记录。
+    # LE3 修复（11-19 审查）：隔日欠账同样必须等全局钟点后才推进——钟点前推进会把
+    # 「fire_date 已隔日→作废记 skipped」的欠账在 skipped 记录生成前静默吞掉
+    # （fire_date<today 的 skipped 分支依赖 leads 非空，钟点前 leads=[] 根本到不了）。
     if s["type"] == "periodic":
         nd = next_d
         guard = 0
-        while nd <= today and guard < 1000:
+        fired_set = _fired_keys(s)
+        while ((nd < today and now_min >= fire_min)
+               or (nd == today and f"{nd.isoformat()}:0" in fired_set)) and guard < 1000:
             nd = advance(nd, s["period"], s["custom_days"] or 0)
             guard += 1
         if nd != next_d:
             conn.execute("UPDATE subs SET next_date=?,status='active' WHERE id=?",
                          (nd.isoformat(), s["id"]))
             conn.commit()
-        if nd <= today:  # guard 用尽=数据异常（间隔 0），停止推进防死循环
+        if guard >= 1000:  # guard 用尽=数据异常（间隔 0），停止推进防死循环
             log.warning("订阅项 #%s 周期推算异常，停止自动推进", s["id"])
     return new
 

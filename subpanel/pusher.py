@@ -77,8 +77,9 @@ async def feishu_send(payload_card: dict, chat_id: str,
 
 
 # ---------- 订阅提醒 payload ----------
+# 注意 custom 不入表——推送侧按「每 N 天」特判渲染（fmt_alert，11-04 F4 口径对齐）
 _KIND_CN = {"yearly": "年付", "quarterly": "季付", "monthly": "月付",
-            "weekly": "周付", "custom": "自定义周期", "once": "一次性"}
+            "weekly": "周付", "once": "一次性"}
 
 
 def money_of(a: dict) -> str:
@@ -101,7 +102,13 @@ def alert_subject(a: dict) -> str:
 
 def fmt_alert(a: dict) -> str:
     """五段式纯文本（邮件用）。"""
-    kind = _KIND_CN.get(a.get("kind", "periodic"), "周期")
+    # F4 修复（11-04 体检）：custom 周期推送口径对齐 UI 的「每 N 天」（v1.0.4 全站清零
+    # 「自定义」字样时漏了推送载荷这条路径）
+    if a.get("kind") == "custom":
+        cd = a.get("custom_days") or 0
+        kind = f"每 {cd} 天" if cd > 0 else "周期"
+    else:
+        kind = _KIND_CN.get(a.get("kind", "periodic"), "周期")
     lead = "今日到期" if a["lead_days"] <= 0 else f"提前 {a['lead_days']} 天"
     money = " / ".join(x for x in (money_of(a), (a.get("note") or "").strip()) if x) or "-"
     return ("【订阅续费提醒】\n"
@@ -126,6 +133,7 @@ def _fetch_sub_push_row(sp_id: int) -> dict | None:
     row = db.db().execute(
         "SELECT p.*, a.sub_id,a.title,a.lead_days,a.fire_date,a.next_date,a.amount,"
         "a.currency,a.note,a.kind,a.label,a.created_at, s.period, s.type as sub_type,"
+        " s.custom_days,"
         " w.name wh_name,w.url wh_url,w.fmt wh_fmt,w.enabled wh_enabled"
         " FROM sub_pushes p JOIN alerts a ON a.id=p.alert_id"
         " LEFT JOIN subs s ON s.id=a.sub_id"

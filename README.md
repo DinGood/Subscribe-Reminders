@@ -9,7 +9,7 @@
 | 订阅列表 | 新增订阅 | 编辑订阅 |
 |---|---|---|
 | ![订阅列表](screenshots/1.dingyueliebiao.png) | ![新增订阅](screenshots/2.xinzengdingyue.png) | ![编辑订阅](screenshots/3.bianjidingyue.png) |
-| **总览：LOGO / 周期 / 到期倒计时 / 金额币种，7 天内到期橙色警示** | **添加弹窗：必填红星，周期项默认年付** | **行内展开编辑：元操作组（续期/LOGO/删除）挂备注行右侧** |
+| **总览：LOGO / 周期 / 到期倒计时 / 金额币种，7 天内到期橙色警示** | **添加弹窗：必填红星，周期项默认年付** | **行内展开编辑：LOGO 上传/删除挂标题行右侧，一键续期+保存挂备注行右侧** |
 
 | 通知渠道设置 | 订阅设置 |
 |---|---|
@@ -24,7 +24,7 @@ python -m venv .venv
 .venv/bin/python run_sub.py                      # Windows: .venv\Scripts\python → http://127.0.0.1:8766
 ```
 
-首次访问跳登录页，默认密码 `admin`（登录后经顶栏「后台管理」修改，改后存库；可用环境变量 `SUB_ADMIN_PASSWORD` 改默认值）。
+默认免登录直接访问；可在右上角「后台管理」勾选「需要登录验证密码」开启登录验证（勾选后未登录一律跳登录页；前提是环境变量 `SUB_AUTH_ENABLED` 总闸未关——总闸设 0 为完全免检的开发模式，此时该开关隐藏且不生效）。管理密码默认 `admin`，经「后台管理」修改：需验证当前密码，新密码至少 8 位并两次确认（开启验证时改密后强制重登；可用环境变量 `SUB_ADMIN_PASSWORD` 改默认值）。
 
 ## Docker 部署
 
@@ -72,7 +72,7 @@ docker compose up -d              # 起服务；docker compose logs -f 看运行
 
 ## 开发
 
-`tests/` 四套回归（鉴权流 / 调度离线断言 / 外链+必填+续期 E2E / SVG 净化），拉起服务后 `python tests/test_auth_flow.py` 等逐个跑即可。
+`tests/` 五套回归（鉴权流 / 调度离线断言 / 外链+必填+续期 E2E / SVG 净化 / 渠道开关语义），拉起服务后 `python tests/test_auth_flow.py` 等逐个跑即可（渠道开关套会写库但终态自动复位双关）。
 
 ## 许可
 

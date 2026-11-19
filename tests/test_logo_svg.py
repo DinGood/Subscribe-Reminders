@@ -97,7 +97,7 @@ check("尾随 script 剥离后存净身", r.geturl().endswith("logo_ok") and b"s
 # 10-10 审查绕过样本：实体编码 js-href 现在整图拒绝（净化前探针看不见、解析树看得见）
 r = upload_logo(pid, tok, "e2.svg",
                 b'<svg xmlns="x"><a href="&#106;avascript:alert(1)">t</a><rect/></svg>')
-check("实体编码 javascript: href 拒绝 bad_logo", r.geturl().endswith("bad_logo"))
+check("实体编码 javascript: href 拒绝 bad_logo", "msg=bad_logo" in r.geturl())
 r = upload_logo(pid, tok, "e3.svg",
                 b'<svg xmlns="x" xmlns:p="urn:p"><p:script>alert(1)</p:script><rect/></svg>')
 saved = open(lp, "rb").read()
@@ -122,16 +122,47 @@ for name, body in (
     ("image 挂非 base64 位图拒绝", b'<svg xmlns="x"><image href="data:image/tiff;base64,AAAA"/><rect/></svg>'),
 ):
     r = upload_logo(pid, tok, "z.svg", body)
-    check(name, r.geturl().endswith("bad_logo"))
+    check(name, "msg=bad_logo" in r.geturl())
 
 r = upload_logo(pid, tok, "b.svg", b'<svg' + bytes(range(0x80, 0xff, 2)))
-check("非 UTF-8 伪 SVG 拒绝 bad_logo", r.geturl().endswith("bad_logo"))
+check("非 UTF-8 伪 SVG 拒绝 bad_logo", "msg=bad_logo" in r.geturl())
 
 r = upload_logo(pid, tok, "x.txt", b'<svg xmlns="x"><rect/></svg> not-really')
 check("SVG 根判定=声明后必须 <svg 开头；尾随杂质过不了 XML 良构终审=拒绝（10-10 加严）",
-      r.geturl().endswith("bad_logo"))
+      "msg=bad_logo" in r.geturl())
+# F5 回归（11-04 体检）：编辑区 +LOGO 坏图回跳必须带 sid——不带则前端误弹「添加订阅」丢编辑态
+check("F5 编辑区坏图回跳带 sid", f"sid={pid}" in r.geturl())
+
+# M2 回归（11-04 体检）：实体编码换行/制表混淆的 javascript: scheme（浏览器解析 URL 前会剥
+# 控制字符还原成 js scheme）——净化终审比对前剥 [\x00-\x20]，两形态均整图拒
+r = upload_logo(pid, tok, "nl.svg",
+                b'<svg xmlns="x"><a href="java&#10;script:alert(1)"><text>t</text></a><rect/></svg>')
+check("M2 换行混淆 js scheme 拒绝 bad_logo", "msg=bad_logo" in r.geturl())
+r = upload_logo(pid, tok, "tb.svg",
+                b'<svg xmlns="x"><a href="java&#9;script:alert(1)"><rect/></a></svg>')
+check("M2 制表混淆 js scheme 拒绝 bad_logo", "msg=bad_logo" in r.geturl())
+# 但合法带内嵌 base64 位图（载荷含换行排版）的导出文件不得被归一化误杀
+r = upload_logo(pid, tok, "b64.svg",
+                b'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"'
+                b' viewBox="0 0 9 9"><rect width="9" height="9" fill="green"/>'
+                b'<image href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAf'
+                b'FcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" width="5" height="5"/></svg>')
+check("M2 归一化后合法内嵌位图不误杀", r.geturl().endswith("logo_ok")
+      and b"data:image/png;base64," in open(lp, "rb").read())
+# M3 回归（11-04 体检）：CDATA 单遍线性剥离——未闭合整图拒；合法闭合放行；海量未闭合不卡死
+r = upload_logo(pid, tok, "cd1.svg", b'<svg xmlns="x"><rect/><![CDATA[ oops</svg>')
+check("M3 未闭合 CDATA 拒绝 bad_logo", "msg=bad_logo" in r.geturl())
+r = upload_logo(pid, tok, "cd2.svg",
+                b'<svg xmlns="x"><style><![CDATA[ .a{fill:red} ]]></style><rect/></svg>')
+check("M3 合法闭合 CDATA style 不误杀", r.geturl().endswith("logo_ok"))
+import time as _time
+_t0 = _time.time()
+r = upload_logo(pid, tok, "cd3.svg", b'<svg xmlns="x"><rect/>' + b'<![CDATA[' * 20000)
+_dt = _time.time() - _t0
+check(f"M3 200KB 未闭合 CDATA 洪泛线性化（{ _dt:.2f}s<3s，旧正则 2~17s 卡事件循环）",
+      _dt < 3 and "msg=bad_logo" in r.geturl())
 r = upload_logo(pid, tok, "g.gif", b"GIF89a" + b"\x00" * 40)
-check("GIF 仍不在白名单=拒绝", r.geturl().endswith("bad_logo"))
+check("GIF 仍不在白名单=拒绝", "msg=bad_logo" in r.geturl())
 
 png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
 r = upload_logo(pid, tok, "p.png", png)

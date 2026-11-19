@@ -22,6 +22,8 @@ cursor:pointer;font-size:14px;font-weight:600;transition:.15s;box-shadow:0 5px 1
 button:hover{filter:brightness(1.06)}button:active{transform:translateY(1px)}
 .err{color:#e5484d;font-size:12.5px;margin-bottom:12px;background:#fdeeee;
 border:1px solid #f5c3c5;border-radius:9px;padding:7px 11px}
+.flash{background:#e7f8f0;color:#0a7d50;border:1px solid #b7e8cf;border-left:3px solid #0fa968;
+border-radius:9px;padding:7px 11px;margin-bottom:12px;font-size:12.5px}
 </style></head><body>
 <form method="post" action="/login" class="card">
   <div class="logo">订阅提醒</div>
@@ -30,7 +32,8 @@ border:1px solid #f5c3c5;border-radius:9px;padding:7px 11px}
   {% elif error == 'locked' %}<div class="err">失败次数过多，请 5 分钟后再试</div>
   {% elif error == 'csrf' %}<div class="err">会话校验失败（CSRF），请重新登录</div>
   {% elif error %}<div class="err">密码错误</div>{% endif %}
-  {% if msg == 'changed' %}<div class="flash" style="color:#0a7d50;font-size:12.5px;margin-bottom:12px">密码已修改，请重新登录</div>{% endif %}
+  {% if msg == 'changed' %}<div class="flash">密码已修改，请重新登录</div>{% endif %}
+  {% if msg == 'auth_on' %}<div class="flash">登录验证已开启，请使用管理密码登录</div>{% endif %}
   <input type="password" name="password" placeholder="管理密码" autofocus required>
   <button type="submit">登录</button>
 </form>

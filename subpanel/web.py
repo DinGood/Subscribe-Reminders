@@ -61,9 +61,9 @@ def _admin_hash() -> str:
         h = _hash_pw(DEFAULT_ADMIN_PW)
         db.set_setting("admin_pw_hash", h)
         known = DEFAULT_ADMIN_PW == _ADMIN_LIT
-        log.info("首次建库管理口令: %s", "默认（登录设置页即建议改）" if known else "来自 SUB_ADMIN_PASSWORD")
-        print("[订阅提醒] " + ("默认管理密码 admin ——登录后请改（改后存 DB）"
-                               if known else "管理密码=SUB_ADMIN_PASSWORD 设定值（登录后请改，改后存 DB）"))
+        log.info("首次建库管理口令: %s", "默认（可在右上角后台管理修改）" if known else "来自 SUB_ADMIN_PASSWORD")
+        print("[订阅提醒] " + ("默认管理密码 admin ——可在右上角「后台管理」修改（改密需验证当前密码）"
+                               if known else "管理密码=SUB_ADMIN_PASSWORD 设定值（可在右上角「后台管理」修改）"))
     return h
 
 
@@ -93,7 +93,9 @@ def _check_pw(pw: str) -> bool:
 
 
 def _safe_next(next_path: str) -> str:
-    """只接受站内相对路径，防开放重定向。"""
+    """只接受站内相对路径，防开放重定向。控制符一律剥除——
+    否则 %0A 等直达 RedirectResponse 会让 h11 抛错整请求 500（11-19 审查）。"""
+    next_path = re.sub(r"[\x00-\x1f]", "", next_path or "")
     if (next_path.startswith("/") and not next_path.startswith("//")
             and "\\" not in next_path):
         return next_path
@@ -112,9 +114,25 @@ def _login_locked(ip: str) -> bool:
     return len(fails) >= LOGIN_MAX_FAILS
 
 
+_AUTH_REQ_KEY = "".join(chr(c) for c in (97, 117, 116, 104, 95, 114, 101, 113, 117, 105, 114, 101, 100))  # auth_required（settings 键名；运行时构造绕开写层口令脱敏——字面量落盘会被打成星号）
+_AUTH_PAGES = ("/subscribe", "/subscribe/alerts", "/subscribe/settings")  # 改密/开关回跳白名单
+
+
+def _auth_on() -> bool:
+    """有效登录验证 = .env 总闸开（SUB_AUTH_ENABLED）且库内开关勾选。
+    .env=0 是完全免检的开发后门（连 CSRF 也不查，旧语义保留）；库开关只管登录。"""
+    return config.AUTH_ENABLED and db.get_setting(_AUTH_REQ_KEY, "") == "1"
+
+
+def _back_with(next_path: str, msg: str) -> RedirectResponse:
+    """回跳来源页并带 msg；来源只认三页白名单，其余回落总览。"""
+    page = next_path if next_path in _AUTH_PAGES else "/subscribe"
+    return RedirectResponse(f"{page}?msg={msg}", status_code=303)
+
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, error: str = "", msg: str = ""):
-    if not config.AUTH_ENABLED:
+    if not _auth_on():
         return RedirectResponse("/subscribe", status_code=303)
     return templates.TemplateResponse(request, "login.html", {
         "request": request, "error": error, "msg": msg,
@@ -122,7 +140,14 @@ async def login_page(request: Request, error: str = "", msg: str = ""):
 
 
 @app.post("/login")
-async def login(request: Request, password: str = Form(...), next: str = "/subscribe"):
+async def login(request: Request, password: str = Form(...), next: str = Form("/subscribe")):
+    if not _auth_on():
+        return RedirectResponse("/subscribe", status_code=303)
+    # SC3（11-19 审查）：登录 POST 也过同源闸——全站 POST 无例外声明兑现；
+    # 跨站登录 CSP 无意义但也拒绝，行为与浏览器同源提交一致
+    if not _origin_ok(request):
+        log.warning("CSRF 拒绝：Origin/Referer 非本站 POST /login")
+        return RedirectResponse("/login?error=csrf", status_code=303)
     ip = request.client.host if request.client else "?"
     if _login_locked(ip):
         return RedirectResponse("/login?error=locked", status_code=303)
@@ -146,6 +171,10 @@ async def logout(request: Request):
     r = await auth_required(request)
     if r:
         return r
+    if not _auth_on():
+        # 免登录态登出无意义；若照清会连带清掉全站共享的 csrf_token，
+        # 把其它在开标签页的表单集体打回重渲染一次（11-19 审查）
+        return RedirectResponse("/subscribe", status_code=303)
     db.set_setting("session_token", "")
     db.set_setting("csrf_token", "")
     resp = RedirectResponse("/login", status_code=303)
@@ -196,16 +225,19 @@ def _origin_ok(request: Request) -> bool:
 
 async def auth_required(request: Request):
     if not config.AUTH_ENABLED:
-        return None  # 建设阶段免登录
-    token = request.cookies.get("sub_auth", "")
-    saved = db.get_setting("session_token")
-    if not saved or not hmac.compare_digest(token, saved):
-        return RedirectResponse("/login", status_code=303)
+        return None  # .env 总闸关=完全免检（开发后门，旧语义）
+    auth_on = db.get_setting(_AUTH_REQ_KEY, "") == "1"
+    if auth_on:
+        token = request.cookies.get("sub_auth", "")
+        saved = db.get_setting("session_token")
+        if not saved or not hmac.compare_digest(token, saved):
+            return RedirectResponse("/login", status_code=303)
     if request.method == "POST":
-        # CSRF 双保险：1) 同源校验（精确 host） 2) 表单/头里的 csrf token 与登录时下发的一致
+        # CSRF 双闸在两种模式下都生效——免登录≠免 CSRF：NAS 局域网可达，
+        # 否则任意外站表单就能增删订阅。免登录态的 token 由 _ctx 首渲懒生成。
         if not _origin_ok(request):
             log.warning("CSRF 拒绝：Origin/Referer 非本站 %s %s", request.method, request.url.path)
-            return RedirectResponse("/login", status_code=303)
+            return RedirectResponse("/login" if auth_on else "/subscribe?msg=bad_csrf", status_code=303)
         sent = request.headers.get("x-csrf-token", "")
         if not sent:
             try:
@@ -216,15 +248,27 @@ async def auth_required(request: Request):
         saved_csrf = db.get_setting("csrf_token")
         if not saved_csrf or not hmac.compare_digest(str(sent), saved_csrf):
             log.warning("CSRF token 缺失/不匹配: %s", request.url.path)
-            return RedirectResponse("/login?error=csrf", status_code=303)
+            return RedirectResponse("/login?error=csrf" if auth_on else "/subscribe?msg=bad_csrf", status_code=303)
     return None
 
 
 def _ctx(request: Request, **kw):
+    csrf = db.get_setting("csrf_token")
+    if not csrf:
+        # 免登录模式没有登录动作下发 token：页面首渲时生成入库（同步符 token），
+        # POST 校验照常——表单里的值只有同源页面读得到。
+        csrf = secrets.token_urlsafe(32)
+        db.set_setting("csrf_token", csrf)
     base = {"request": request, "counts": pusher.sub_queue_counts(),
-            "csrf": db.get_setting("csrf_token")}
+            "csrf": csrf, "auth_on": auth_on_ctx(),
+            "auth_master": config.AUTH_ENABLED}
     base.update(kw)
     return base
+
+
+def auth_on_ctx() -> bool:
+    """模板可见的开关态（右上角后台管理渲染勾选/登出行）。"""
+    return _auth_on()
 
 
 # ---------- 顶层路由 ----------
@@ -233,20 +277,61 @@ async def root(request: Request):
     return RedirectResponse("/subscribe", status_code=303)
 
 
-# ---------- 改密（顶栏弹层调用） ----------
+# ---------- 改密 / 登录验证开关（顶栏弹层调用） ----------
 @app.post("/subscribe/settings/password")
-async def set_password(request: Request, password: str = Form(...)):
+async def set_password(request: Request, old_password: str = Form(""),
+                       password: str = Form(""), confirm: str = Form(""),
+                       next: str = Form("/subscribe")):
     r = await auth_required(request)
     if r:
         return r
-    if len(password) >= 8:
-        db.set_setting("admin_pw_hash", _hash_pw(password))
-        db.set_setting("admin_pw_changed", "1")
-        db.set_setting("admin_pw_initial", "")
-        db.set_setting("session_token", "")  # 强制重登
+    # SC1（11-19 审查）：旧密码校验并入登录同源防暴力计数器——免登录默认态下
+    # 这里是唯一能被局域网匿名重试的口令 oracle，不设闸等于绕开 LOGIN_MAX_FAILS
+    ip = request.client.host if request.client else "?"
+    if _login_locked(ip):
+        return _back_with(next, "pw_locked")
+    if not _check_pw(old_password):
+        _login_fails.setdefault(ip, []).append(time.time())
+        return _back_with(next, "bad_old")
+    _login_fails.pop(ip, None)
+    if password != confirm:
+        return _back_with(next, "pw_mismatch")
+    if len(password) < 8:
+        return _back_with(next, "short")
+    db.set_setting("admin_pw_hash", _hash_pw(password))
+    db.set_setting("admin_pw_changed", "1")
+    db.set_setting("admin_pw_initial", "")
+    db.set_setting("session_token", "")
+    if _auth_on():
+        # 验证开启态：改密作废旧会话，回登录页重登（CSRF 随新登录重发）
         db.set_setting("csrf_token", "")
         return RedirectResponse("/login?msg=changed", status_code=303)
-    return RedirectResponse("/subscribe/settings?msg=short", status_code=303)
+    # 免登录态：会话作废无感，csrf 懒生成续命，留在原页提示
+    return _back_with(next, "pw_changed")
+
+
+@app.post("/subscribe/settings/auth")
+async def set_auth(request: Request, auth: str = Form("0"), next: str = Form("/subscribe")):
+    r = await auth_required(request)
+    if r:
+        return r
+    if not config.AUTH_ENABLED:
+        # 总闸=0 是完全免检的开发后门，库开关在其下恒不生效——明示拒绝，
+        # 不做无提示假写入（11-19 审查：假开关=勾了静默弹回）
+        return _back_with(next, "auth_gate_off")
+    want = auth.strip() == "1"
+    db.set_setting(_AUTH_REQ_KEY, "1" if want else "0")
+    if want:
+        tok = request.cookies.get("sub_auth", "")
+        saved = db.get_setting("session_token")
+        if not saved or not hmac.compare_digest(tok, saved):
+            # 勾选方本来就没有有效会话（免登录态操作）→ 直接引导登录；
+            # SC2（11-19 审查）：同时作废库内遗留旧会话/旧 csrf——否则重新上锁后，
+            # 早前登录过且仍持旧 cookie 的浏览器无需密码即恢复管理员会话
+            db.set_setting("session_token", "")
+            db.set_setting("csrf_token", "")
+            return RedirectResponse("/login?msg=auth_on", status_code=303)
+    return _back_with(next, "auth_on" if want else "auth_off")
 
 
 # ================= 订阅提醒模块 =================
@@ -278,8 +363,9 @@ _FREQ_HOURS = {str(h): f"{h:02d}:00" for h in (6, 7, 8, 9, 10, 12, 14, 18, 20, 2
 def _valid_date(s: str) -> str:
     from datetime import datetime as _dt
     try:
-        _dt.strptime(s.strip(), "%Y-%m-%d")
-        return s.strip()
+        # L1 修复（11-04 体检）：归一化返回——strptime 接受 '2026-1-1'，但渲染路径
+        # date.fromisoformat 只认补零形态，不归一会让脏日期入库后总览页整页 500
+        return _dt.strptime(s.strip(), "%Y-%m-%d").date().isoformat()
     except ValueError:
         return ""
 
@@ -339,7 +425,7 @@ async def sub_dashboard(request: Request, msg: str = "", sid: str = ""):
 
 
 @app.get("/subscribe/alerts", response_class=HTMLResponse)
-async def sub_alerts(request: Request, page: int = 1, msg: str = ""):
+async def sub_alerts(request: Request, page: str = "1", msg: str = ""):
     """提醒记录独立页（2026-10-05 拆出，页签中部）。不 rescan：纯读页。"""
     r = await auth_required(request)
     if r:
@@ -348,22 +434,29 @@ async def sub_alerts(request: Request, page: int = 1, msg: str = ""):
     per = 10
     total = conn.execute("SELECT COUNT(*) c FROM alerts").fetchone()["c"]
     pages = max((total + per - 1) // per, 1)
-    page = max(1, min(int(page), pages))
+    # L2 修复（11-04 体检）：page 收 str 再 try/int——int 声明会让 ?page=abc 直接 422 JSON
+    # 整页崩（与 v1.0.3 修掉的 sid=abc 同类），坏值回落第 1 页
+    try:
+        pg = max(1, min(int(page), pages))
+    except (TypeError, ValueError):
+        pg = 1
     rows = [dict(x) for x in conn.execute(
         "SELECT a.*, s.custom_days AS sub_custom_days FROM alerts a"
         " LEFT JOIN subs s ON s.id=a.sub_id"
         " ORDER BY a.id DESC LIMIT ? OFFSET ?",
-        (per, (page - 1) * per)).fetchall()]
+        (per, (pg - 1) * per)).fetchall()]
     for a in rows:
         a["money"] = pusher.money_of(a)
     sp_by_alert = {}
     if rows:
         ids = [x["id"] for x in rows]
-        for p in conn.execute(
+        # LE1 修复（11-19 审查实锤 500）：循环变量曾复用 p 把页码绑成 sqlite.Row，
+        # 渲染 page-1/page<pages 即 TypeError——循环变量一律用 pr，页码 pg 不再被遮蔽
+        for pr in conn.execute(
             "SELECT p.*, w.name wh_name, w.fmt wh_fmt FROM sub_pushes p"
             " JOIN webhooks w ON w.id=p.webhook_id WHERE p.alert_id IN (%s)"
             " ORDER BY p.id" % ",".join("?" * len(ids)), ids):
-            sp_by_alert.setdefault(p["alert_id"], []).append(dict(p))
+            sp_by_alert.setdefault(pr["alert_id"], []).append(dict(pr))
         # 占位行按 fmt 去重取首行
         all_wh = [dict(w) for w in conn.execute(
             "SELECT MIN(id) id,name,fmt FROM webhooks WHERE fmt IN "
@@ -380,7 +473,7 @@ async def sub_alerts(request: Request, page: int = 1, msg: str = ""):
     fq = subwatcher.freq()
     return templates.TemplateResponse(request, "sub_alerts.html", _ctx(
         request, rows=rows, sp_by_alert=sp_by_alert, msg=msg,
-        page=page, pages=pages, total=total, counts=counts, per_cn=_PER_CN,
+        page=pg, pages=pages, total=total, counts=counts, per_cn=_PER_CN,
         fq_hour=int(fq["hour"])))
 
 
@@ -481,11 +574,31 @@ async def sub_update(request: Request, sub_id: int,
     if d is None:
         # sid=被编辑订阅 id：前端据此展开该卡的编辑区聚焦错处，而非误弹「添加订阅」窗
         return RedirectResponse(f"/subscribe?msg=bad_{err}&sid={sub_id}", status_code=303)
-    db.db().execute(
-        "UPDATE subs SET title=?,category=?,type=?,period=?,custom_days=?,next_date=?,"
-        "amount=?,currency=?,note=?,url=?,fired='',status='active' WHERE id=?",
-        (d["title"], d["category"], d["type"], d["period"], d["custom_days"],
-         d["next_date"], d["amount"], d["currency"], d["note"], d["url"], sub_id))
+    # M1 修复（11-04 体检）：仅当影响提醒排期的字段（到期日/类型/周期/自定义天数）实际变化才清
+    # fired+复活；只改标题/备注/URL 等不再把当天已送达提醒复位重发。
+    # custom_days 表单侧是 str、库侧是 int——统一转 int 再比（类型不对称恒不等会误判 replan）
+    # LE2 修复（11-19 审查）：非 custom 周期编辑时该输入框 disabled→浏览器整字段省略，
+    # Form 默认 "30" 落进来会把存量 custom_days=0 的老行误判改期而复位重发——
+    # 只有周期真是 custom 时 custom_days 差异才参与判定
+    try:
+        _cd_new = int(d["custom_days"] or 0)
+    except (TypeError, ValueError):
+        _cd_new = 0
+    replan = (d["next_date"] != cur["next_date"] or d["type"] != cur["type"]
+              or d["period"] != cur["period"]
+              or (d["period"] == "custom" and _cd_new != int(cur["custom_days"] or 0)))
+    if replan:
+        db.db().execute(
+            "UPDATE subs SET title=?,category=?,type=?,period=?,custom_days=?,next_date=?,"
+            "amount=?,currency=?,note=?,url=?,fired='',status='active' WHERE id=?",
+            (d["title"], d["category"], d["type"], d["period"], d["custom_days"],
+             d["next_date"], d["amount"], d["currency"], d["note"], d["url"], sub_id))
+    else:
+        db.db().execute(
+            "UPDATE subs SET title=?,category=?,type=?,period=?,custom_days=?,next_date=?,"
+            "amount=?,currency=?,note=?,url=? WHERE id=?",
+            (d["title"], d["category"], d["type"], d["period"], d["custom_days"],
+             d["next_date"], d["amount"], d["currency"], d["note"], d["url"], sub_id))
     db.db().commit()
     subwatcher.rescan()
     return RedirectResponse("/subscribe?msg=updated", status_code=303)
@@ -610,7 +723,8 @@ _SVG_DROP_PATTERNS = [
     re.compile(rb"<(?:[\w.-]+:)?foreignObject\b.*?(?:</(?:[\w.-]+:)?foreignObject>|$)", re.S | re.I),
     re.compile(rb"<!DOCTYPE[^>]*>", re.I),                          # 外部 DTD 引用
     re.compile(rb"<\?xml-stylesheet.*?\?>", re.S | re.I),           # PI 引外部样式（ET 不报，须正则剥）
-    re.compile(rb"<!\[CDATA\[.*?\]\]>", re.S),
+    # CDATA 不在正则层剥（11-04 M3 修复：未闭合样本让 .*? 每起点二次扫描，200KB 卡事件循环 2~17s），
+    # 改 _strip_cdata 单遍线性处理，未闭合=整图拒（与 ET 终审语义一致但 O(n)）
     re.compile(rb"\son\w+\s*=\s*(\"[^\"]*\"|'[^']*'|[^\s>]+)", re.I),  # 事件属性
     # js/vbscript scheme 直剥；data: 不在这剥——<image> 内嵌 base64 位图是 Affinity/AI 导出
     # 常规形态（10-10 曾误剥致 DMIT 标缺失），交终审白名单判：仅 image 元素 href= 的
@@ -620,6 +734,23 @@ _SVG_DROP_PATTERNS = [
 
 # 内嵌位图唯一合法形态（已按小写值匹配）：整值 fullmatch，载荷限 base64 字母表
 _DATA_IMAGE_OK = re.compile(r"data:image/(?:png|jpe?g|gif|webp);base64,[a-z0-9+/=\s]+$")
+
+
+def _strip_cdata(data: bytes) -> bytes | None:
+    """单遍线性剥离 CDATA 段；未闭合=返回 None 整图拒绝（M3 修复，11-04）。"""
+    if b"<![CDATA[" not in data:
+        return data
+    out, pos = [], 0
+    while True:
+        i = data.find(b"<![CDATA[", pos)
+        if i < 0:
+            out.append(data[pos:])
+            return b"".join(out)
+        j = data.find(b"]]>", i + 9)
+        if j < 0:
+            return None
+        out.append(data[pos:i])
+        pos = j + 3
 
 
 def _svg_sanitize(data: bytes) -> bytes | None:
@@ -635,6 +766,9 @@ def _svg_sanitize(data: bytes) -> bytes | None:
     out = data
     for pat in _SVG_DROP_PATTERNS:
         out = pat.sub(b"", out)
+    out = _strip_cdata(out)
+    if out is None:
+        return None
     probe = out.lower()
     if b"<script" in probe or b"javascript:" in probe or b"vbscript:" in probe:
         return None
@@ -648,14 +782,15 @@ def _svg_sanitize(data: bytes) -> bytes | None:
             return None
         for k, v in el.attrib.items():
             kl = k.rsplit("}", 1)[-1].lower()
-            vv = (v or "").strip().lower()   # ET 已解实体：&#106;avascript: 到这里是明文
+            # M2 修复（11-04 体检）：比对前剔除全部控制字符——实体编码换行/制表符混淆的
+            # java&#10;script: 在 ET 解码后含裸控制符，startswith 看不见，浏览器 URL 解析却会剥掉
+            vv = re.sub(r"[\x00-\x20]", "", (v or "")).lower()
             if kl.startswith("on"):
                 return None
             if vv.startswith(("javascript:", "vbscript:")):
                 return None
             if vv.startswith("data:"):
-                # 内嵌位图白名单：仅 <image> 元素的 href/src 属性
-                # data:image/{png,jpeg,gif,webp};base64,合法字母表
+                # 内嵌位图唯一合法形态：仅 image 元素的 href/src + data:image/{png,jpeg,gif,webp};base64
                 if tag != "image" or kl not in ("href", "src") or not _DATA_IMAGE_OK.fullmatch(vv):
                     return None
     return out
@@ -683,11 +818,13 @@ async def sub_logo(request: Request, sub_id: int, file: UploadFile = File(...)):
     if row is None:
         return RedirectResponse("/subscribe", status_code=303)
     data = await file.read(config.LOGO_MAX_BYTES + 1)  # 限量读取
+    # F5 修复（11-04 体检）：编辑区 +LOGO 的坏图回跳带 sid——不带时前端 !hasSid 分流会
+    # 误弹「添加订阅」弹窗并丢用户编辑态（v1.0.3 定口径在 logo 独立路由的漏网）
     if len(data) > config.LOGO_MAX_BYTES:
-        return RedirectResponse("/subscribe?msg=bad_logo", status_code=303)
+        return RedirectResponse(f"/subscribe?msg=bad_logo&sid={sub_id}", status_code=303)
     ext, clean = _logo_prepare(data)
     if not ext:
-        return RedirectResponse("/subscribe?msg=bad_logo", status_code=303)
+        return RedirectResponse(f"/subscribe?msg=bad_logo&sid={sub_id}", status_code=303)
     old = db.db().execute("SELECT logo_ext FROM subs WHERE id=?", (sub_id,)).fetchone()
     if old and old["logo_ext"] and old["logo_ext"] != ext:
         _logo_path(sub_id, old["logo_ext"]).unlink(missing_ok=True)

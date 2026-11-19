@@ -75,5 +75,60 @@ assert "2026-01-01:11" not in sw._fired_keys(s2), "子串误判回潮"
 assert "2026-01-01:1" in sw._fired_keys(s2)
 print("PASS fired 键精确集合匹配")
 
+# --- 5. H1 回归（11-04 体检）：当天到期项在提醒钟点前被扫描，必须不推进也不吞
+# （旧 bug：钟点未到 leads 置空但推进无条件执行，早上开面板/重启即吞掉当天「必提」）---
+from datetime import datetime as _dt2
+sw.set_freq({"days": 1, "hour": 10})
+today_d = _dt2.fromtimestamp(now).date()
+d0 = today_d.isoformat()
+t8 = int(_dt2.fromisoformat(d0 + "T08:00:00").timestamp())
+t10 = int(_dt2.fromisoformat(d0 + "T10:00:00").timestamp())
+conn.execute("INSERT INTO subs(id,title,category,type,period,custom_days,next_date,leads,"
+             "amount,currency,note,enabled,status,fired,created_at)"
+             " VALUES(910,'DUE','x','periodic','monthly',0,?,'',0,'CNY','',1,'active','',?)",
+             (d0, now))
+conn.commit()
+sw.scan(t8)
+nd = conn.execute("SELECT next_date FROM subs WHERE id=910").fetchone()[0]
+na = conn.execute("SELECT COUNT(*) FROM alerts WHERE sub_id=910").fetchone()[0]
+assert nd == d0, f"H1 回潮：钟点未到当天到期行被推进（{d0}->{nd}），当天提醒将永久丢失"
+assert na == 0, "钟点前不该出提醒"
+sw.scan(t10)
+nd = conn.execute("SELECT next_date FROM subs WHERE id=910").fetchone()[0]
+lead0 = conn.execute("SELECT COUNT(*) FROM alerts WHERE sub_id=910 AND lead_days=0").fetchone()[0]
+assert lead0 == 1, f"钟点后当天必提 lead=0 未生成: {lead0}"
+assert nd > d0, f"已发 lead=0 后应推进下一期: {nd}"
+print("PASS 当天到期：钟点前不吞不推、钟点后必提且推进")
+
+# --- 6. LE3 回归（11-19 审查）：隔日欠账行钟点前不得被推进静默吞（skipped 语义保真） ---
+from datetime import timedelta as _td
+yday = (today_d - _td(days=1)).isoformat()
+conn.execute("INSERT INTO subs(id,title,category,type,period,custom_days,next_date,leads,"
+             "amount,currency,note,enabled,status,fired,created_at)"
+             " VALUES(912,'OVERDUE1','x','periodic','monthly',0,?,'',0,'CNY','',1,'active',?,?)",
+             (yday, "", now - 5 * 86400))  # 创建于 5 天前：欠账不是历史欠账，应记 skipped
+conn.commit()
+sw.scan(t8)  # 钟点前
+nd = conn.execute("SELECT next_date FROM subs WHERE id=912").fetchone()[0]
+nk = conn.execute("SELECT COUNT(*) FROM alerts WHERE sub_id=912 AND label='skipped'").fetchone()[0]
+assert nd == yday, f"LE3：钟点前隔日欠账行被推进（{yday}->{nd}），skipped 记录永远不会生成"
+assert nk == 0, "钟点前不该有动作"
+sw.scan(t10)  # 钟点后：先记 skipped，再推进
+nd = conn.execute("SELECT next_date FROM subs WHERE id=912").fetchone()[0]
+nk = conn.execute("SELECT COUNT(*) FROM alerts WHERE sub_id=912 AND label='skipped'").fetchone()[0]
+assert nk >= 1, f"钟点后隔日欠账必须记 skipped，实得 {nk}"
+assert nd > yday, f"记完 skipped 应推进下一期: {nd}"
+print("PASS 隔日欠账：钟点前不吞、钟点后记 skipped 再推进")
+
+# --- 7. 防暴力阈值纯函数（11-19 审查 SC1：登录与改密旧密码校验共用此计数器） ---
+web._login_fails["9.9.9.9"] = [time.time()] * (web.LOGIN_MAX_FAILS - 1)
+assert not web._login_locked("9.9.9.9"), "未达阈值却判锁"
+web._login_fails["9.9.9.9"].append(time.time())
+assert web._login_locked("9.9.9.9"), "达阈值未锁"
+web._login_fails["9.9.9.9"] = [time.time() - web.LOGIN_LOCK_S - 1] * web.LOGIN_MAX_FAILS
+assert not web._login_locked("9.9.9.9"), "锁过期未自动放行"
+web._login_fails.pop("9.9.9.9")
+print("PASS 防暴力计数器阈值与 300s 过期")
+
 print()
 print("RESULT: ALL OFFLINE ASSERTS PASS")

@@ -39,8 +39,16 @@ page = req("/subscribe").read().decode()
 check("登录后 /subscribe 200", "订阅总览" in page)
 
 tok = csrf(req("/subscribe"))
+# 日期防时炸（10-04 写死 2026-11-01，11 月后过期被调度补扫即时推进，断言必炸）：
+# 一律取「下月/下下月/下三月 1 号」相对值，月付 advance 恰好逐级 +1 月
+from datetime import date as _dt
+def _m1(n):
+    y, m = _dt.today().year, _dt.today().month + n
+    y += (m - 1) // 12; m = (m - 1) % 12 + 1
+    return _dt(y, m, 1).isoformat()
+ND0, ND1, ND2 = _m1(1), _m1(2), _m1(3)
 FORM = dict(csrf=tok, sub_type="periodic", category="VPS", period="monthly",
-            custom_days="30", next_date="2026-11-01", amount="1", currency="CNY", note="")
+            custom_days="30", next_date=ND0, amount="1", currency="CNY", note="")
 
 # 1) 非法 URL 拒收
 r = req("/subscribe/add", {**FORM, "title": "_t_badurl", "url": "javascript:alert(1)"})
@@ -68,23 +76,64 @@ check("update 空金额回 bad_amount&sid", "msg=bad_amount" in r.geturl() and f
 amt = sqlite3.connect(DB).execute("SELECT amount FROM subs WHERE id=?", (pid,)).fetchone()[0]
 check("空金额 update 被拦原值无损", amt == "1")
 
-# 4) 一键续期：2026-11-01 月付 -> 2026-12-01
+# 4) 一键续期：ND0 月付 -> ND1（下月 1 号）
 r = req(f"/subscribe/{pid}/renew", {"csrf": csrf(req("/subscribe"))})
 row = sqlite3.connect(DB).execute(
     "SELECT next_date,fired FROM subs WHERE id=?", (pid,)).fetchone()
-check("续期推进一期", row[0] == "2026-12-01")
+check("续期推进一期", row[0] == ND1)
 check("续期清幂等键 fired", row[1] == "")
 
 # 5) 二次续期再推进
 r = req(f"/subscribe/{pid}/renew", {"csrf": csrf(req("/subscribe"))})
 row = sqlite3.connect(DB).execute("SELECT next_date FROM subs WHERE id=?", (pid,)).fetchone()
-check("连续续期可叠加推进", row[0] == "2027-01-01")
+check("连续续期可叠加推进", row[0] == ND2)
 
 # 6) 一次性项拒绝续期
 r = req("/subscribe/add", {**FORM, "title": "_t_once", "sub_type": "once", "url": ""})
 oid = sqlite3.connect(DB).execute("SELECT id FROM subs WHERE title='_t_once'").fetchone()[0]
 r = req(f"/subscribe/{oid}/renew", {"csrf": csrf(req("/subscribe"))})
 check("一次性项续期被拒 bad_renew", "msg=bad_renew" in r.geturl())
+# 3c) M1 回归（11-04 体检）：非排期字段编辑不清幂等键（防已送达提醒复位重发）；排期变化才清
+# 直写库必须短连接+busy timeout——长挂连接在 WAL 下与服务写入相撞（11-04 实测 database is locked）
+def _dbw(sql, args=()):
+    con = sqlite3.connect(DB, timeout=15)
+    try:
+        con.execute(sql, args); con.commit()
+    finally:
+        con.close()
+def _nbr(sql, args=()):
+    con = sqlite3.connect(DB, timeout=15)
+    try:
+        return con.execute(sql, args).fetchone()
+    finally:
+        con.close()
+_dbw("UPDATE subs SET fired='2026-01-01:0' WHERE id=?", (pid,))
+# 注意：此段现跑在 4)/5) 两次续期之后，行的排期已非 FORM 初值——update 必须带行的**当前**排期，
+# 否则等于真的改期（产品清 fired 是正确行为），断言就变成测顺序而非测 M1（11-04 首跑 FAIL 的根因）
+_now = _nbr("SELECT next_date,period,custom_days FROM subs WHERE id=?", (pid,))
+r = req(f"/subscribe/{pid}/update", {**FORM, "title": "_t_ok", "url": "https://changed.test/",
+                                     "note": "只改备注", "next_date": _now[0], "period": _now[1],
+                                     "custom_days": str(_now[2] or 0)})
+f1 = _nbr("SELECT fired FROM subs WHERE id=?", (pid,))[0]
+check("M1 备注类编辑保留 fired 幂等键", f1 == "2026-01-01:0")
+r = req(f"/subscribe/{pid}/update", {**FORM, "title": "_t_ok", "url": "https://changed.test/",
+                                     "next_date": _m1(5), "period": _now[1],
+                                     "custom_days": str(_now[2] or 0)})
+row = _nbr("SELECT fired,next_date FROM subs WHERE id=?", (pid,))
+check("M1 改期编辑清 fired 并复活", row[0] == "" and row[1] == _m1(5))
+
+# 3d) LE2 回归（11-19 审查）：浏览器省略整个 disabled custom_days 字段（表单不含该键）时，
+# Form 默认 "30" 不得把 custom_days=0 的月付老行误判改期——fired 必须原样保留
+_dbw("UPDATE subs SET fired='2026-01-01:0',custom_days=0 WHERE id=?", (pid,))
+_now = _nbr("SELECT next_date,period FROM subs WHERE id=?", (pid,))
+_body = {k: v for k, v in FORM.items() if k != "custom_days"}
+r = req(f"/subscribe/{pid}/update", {**_body, "title": "_t_ok", "url": "https://changed.test/",
+                                     "note": "只改备注", "next_date": _now[0], "period": _now[1]})
+f1 = _nbr("SELECT fired FROM subs WHERE id=?", (pid,))[0]
+check("LE2 缺省 custom_days 字段不误判改期", f1 == "2026-01-01:0")
+_dbw("UPDATE subs SET fired='' WHERE id=?", (pid,))  # 复位，别把伪造键留给清理段
+
+
 
 # 7) 无 URL 的订阅名称不渲染链接（纯 <b>，不被 <a href> 包裹）
 page = req("/subscribe").read().decode()
